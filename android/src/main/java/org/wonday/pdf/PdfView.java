@@ -104,6 +104,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private float autoScrollPixels = 15f;   // pixels per second
     private long autoScrollResumeDelay = 3000L;
     private long lastFrameTimeNanos = 0;
+    private float accumulatedScrollOffset = 0f; // float accumulator – avoids re-reading the rendering-quantised offset
 
     public PdfView(Context context, AttributeSet set){
         super(context, set);
@@ -584,6 +585,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         this.autoScrollResumeDelay = resumeDelayMs;
         this.isAutoScrolling = true;
         this.lastFrameTimeNanos = 0;
+        // Capture current position into float accumulator so doFrame never reads back
+        // the rendering-quantised offset from getCurrentYOffset().
+        this.accumulatedScrollOffset = -getCurrentYOffset(); // getCurrentYOffset() is negative
 
         if (autoScrollFrameCallback == null) {
             autoScrollFrameCallback = new Choreographer.FrameCallback() {
@@ -603,9 +607,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
                     float elapsedSeconds = (frameTimeNanos - lastFrameTimeNanos) / 1_000_000_000f;
                     lastFrameTimeNanos = frameTimeNanos;
-                    float scrollAmount = autoScrollPixels * elapsedSeconds;
 
-                    float currentY = getCurrentYOffset();
+                    // Accumulate into our own float – do NOT read getCurrentYOffset() back.
+                    // barteksc may snap the rendered position to pixel boundaries; re-reading
+                    // that snapped value each frame loses the fractional part and makes low
+                    // speeds (< ~20 px/s) invisible.
+                    accumulatedScrollOffset += autoScrollPixels * elapsedSeconds;
+
                     float totalHeight = 0;
                     int pageCount = getPageCount();
                     for (int i = 0; i < pageCount; i++) {
@@ -620,18 +628,14 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                         return;
                     }
 
-                    // currentY is negative in barteksc (0 = top, more negative = further down)
-                    float newY = currentY - scrollAmount;
-                    float minY = -maxScroll;
-
-                    if (newY <= minY) {
-                        moveTo(0, minY);
+                    if (accumulatedScrollOffset >= maxScroll) {
+                        moveTo(0, -maxScroll);
                         stopAutoScroll();
                         dispatchAutoScrollEndEvent();
                         return;
                     }
 
-                    moveTo(0, newY);
+                    moveTo(0, -accumulatedScrollOffset);
                     Choreographer.getInstance().postFrameCallback(this);
                 }
             };
@@ -643,6 +647,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 public void run() {
                     if (isAutoScrolling && !isUserTouching) {
                         lastFrameTimeNanos = 0;
+                        // Re-sync accumulator after user may have scrolled manually during pause.
+                        accumulatedScrollOffset = -getCurrentYOffset();
                         Choreographer.getInstance().postFrameCallback(autoScrollFrameCallback);
                     }
                 }

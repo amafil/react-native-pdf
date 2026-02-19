@@ -85,6 +85,7 @@ const float MIN_SCALE = 1.0f;
     BOOL _isUserDragging;
     UIScrollView *_pdfScrollView;
     __weak id<UIScrollViewDelegate> _originalScrollDelegate;
+    CGFloat _autoScrollCurrentOffset; // float accumulator – avoids re-reading UIKit's quantized contentOffset
 }
 
 #ifdef RCT_NEW_ARCH_ENABLED
@@ -311,6 +312,7 @@ using namespace facebook::react;
     _isUserDragging = NO;
     _pdfScrollView = nil;
     _originalScrollDelegate = nil;
+    _autoScrollCurrentOffset = 0.0;
 
     [self addSubview:_pdfView];
 
@@ -1006,7 +1008,12 @@ using namespace facebook::react;
     _autoScrollResumeDelay = resumeDelay;
     _isAutoScrolling = YES;
 
-    [self findPdfScrollView];
+    UIScrollView *sv = [self findPdfScrollView];
+    // Capture the current scroll position into our float accumulator so that
+    // displayLinkTick never reads back UIKit's pixel-quantized contentOffset.
+    if (sv) {
+        _autoScrollCurrentOffset = sv.contentOffset.y;
+    }
     [self startDisplayLink];
 }
 
@@ -1038,7 +1045,12 @@ using namespace facebook::react;
 
     // Frame-rate-independent: use actual elapsed frame time (e.g. 1/60 or 1/120 on ProMotion)
     CGFloat frameDuration = (CGFloat)(link.targetTimestamp - link.timestamp);
-    CGFloat pixelsThisFrame = _autoScrollPixels * frameDuration;
+
+    // Accumulate into our own float – do NOT read contentOffset back from UIKit.
+    // UIKit / PDFKit quantises contentOffset to physical pixel boundaries (1/scale pts
+    // on Retina displays). If we re-read that quantised value every frame we lose the
+    // fractional part, making scrollSpeeds below ~20 px/s invisible on @3x devices.
+    _autoScrollCurrentOffset += _autoScrollPixels * frameDuration;
 
     CGFloat maxOffsetY = scrollView.contentSize.height - scrollView.bounds.size.height;
     if (maxOffsetY <= 0) {
@@ -1047,17 +1059,14 @@ using namespace facebook::react;
         return;
     }
 
-    CGPoint offset = scrollView.contentOffset;
-    CGFloat newY = offset.y + pixelsThisFrame;
-
-    if (newY >= maxOffsetY) {
-        [scrollView setContentOffset:CGPointMake(offset.x, maxOffsetY) animated:NO];
+    if (_autoScrollCurrentOffset >= maxOffsetY) {
+        [scrollView setContentOffset:CGPointMake(scrollView.contentOffset.x, maxOffsetY) animated:NO];
         [self stopAutoScroll];
         [self notifyOnChangeWithMessage:@"autoScrollEnd"];
         return;
     }
 
-    [scrollView setContentOffset:CGPointMake(offset.x, newY) animated:NO];
+    [scrollView setContentOffset:CGPointMake(scrollView.contentOffset.x, _autoScrollCurrentOffset) animated:NO];
 }
 
 - (void)scheduleAutoScrollResume
@@ -1073,6 +1082,11 @@ using namespace facebook::react;
 - (void)autoScrollResumeFromTimer:(NSTimer *)timer
 {
     if (_isAutoScrolling && !_isUserDragging) {
+        // Re-sync the float accumulator with the actual scroll position after
+        // the user may have scrolled manually during the pause.
+        if (_pdfScrollView) {
+            _autoScrollCurrentOffset = _pdfScrollView.contentOffset.y;
+        }
         [self startDisplayLink];
     }
 }
