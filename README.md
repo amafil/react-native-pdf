@@ -1,5 +1,8 @@
-# react-native-pdf
-[![npm](https://img.shields.io/npm/v/react-native-pdf.svg?style=flat-square)](https://www.npmjs.com/package/react-native-pdf)
+# react-native-pdf-toolkit
+[![npm](https://img.shields.io/npm/v/react-native-pdf.svg?style=flat-square)](@amafil/react-native-pdf-toolkit
+)
+
+It is a fork from the original [react-native-pdf](https://github.com/wonday/react-native-pdf) package, with the goal of adding new features and improvements. For now, is an experimental package, and is *not suggested to be used in production*.
 
 A react native PDF view component (cross-platform support)
 
