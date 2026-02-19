@@ -55,6 +55,7 @@
         "PdfViewFlatList.js",
         "PinchZoomView.js",
         "react-native-pdf-toolkit.podspec",
+        "react-native.config.js",
         "fabric/"
     ],
     "codegenConfig": {
