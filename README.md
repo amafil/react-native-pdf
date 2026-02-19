@@ -413,22 +413,21 @@ this.pdf.setPage(42); // Display the answer to the Ultimate Question of Life, th
 ```
 
 #### startAutoScroll()
-`startAutoScroll(pixels?, interval?, resumeDelay?)`
+`startAutoScroll(pixels?, resumeDelay?)`
 
 Start automatic vertical scrolling. Ideal for hands-free reading of music sheets or long documents.
 
-| Parameter   | Type   | Default | Description                                          |
-| ----------- | ------ | ------- | ---------------------------------------------------- |
-| pixels      | number | 15      | Pixels to scroll per tick                            |
-| interval    | number | 1000    | Milliseconds between scroll ticks                    |
+| Parameter   | Type   | Default | Description                                           |
+| ----------- | ------ | ------- | ----------------------------------------------------- |
+| pixels      | number | 15      | Scroll speed in pixels per second                     |
 | resumeDelay | number | 3000    | Milliseconds to wait before resuming after user touch |
 
-The scroll pauses automatically when the user touches the PDF and resumes after `resumeDelay` milliseconds. When the scroll reaches the end of the document it stops and the `onAutoScrollEnd` callback fires.
+The scroll pauses automatically when the user touches the PDF and resumes after `resumeDelay` milliseconds. Scrolling is frame-rate-independent (driven by `CADisplayLink` on iOS, `Choreographer` on Android at the screen's native refresh rate — typically 60 or 120 fps). When the scroll reaches the end of the document it stops and the `onAutoScrollEnd` callback fires.
 
 Example (music sheet use case):
 ```js
 // Start slow auto scroll for reading music sheets
-this.pdf.startAutoScroll(10, 800, 3000);
+this.pdf.startAutoScroll(10, 3000);
 
 // In your component:
 <Pdf

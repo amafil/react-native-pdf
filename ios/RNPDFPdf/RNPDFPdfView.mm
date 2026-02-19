@@ -77,10 +77,9 @@ const float MIN_SCALE = 1.0f;
     UITapGestureRecognizer *_doubleTapEmptyRecognizer;
 
     // Autoscroll
-    NSTimer *_autoScrollTimer;
+    CADisplayLink *_displayLink;
     NSTimer *_autoScrollResumeTimer;
-    CGFloat _autoScrollPixels;
-    NSTimeInterval _autoScrollInterval;
+    CGFloat _autoScrollPixels;        // pixels per second
     NSTimeInterval _autoScrollResumeDelay;
     BOOL _isAutoScrolling;
     BOOL _isUserDragging;
@@ -249,9 +248,9 @@ using namespace facebook::react;
     [self didSetProps:[NSArray arrayWithObject:@"page"]];
 }
 
-- (void)startNativeAutoScroll:(double)pixels interval:(double)interval resumeDelay:(double)resumeDelay
+- (void)startNativeAutoScroll:(double)pixels resumeDelay:(double)resumeDelay
 {
-    [self startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)(interval / 1000.0) resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
+    [self startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
 }
 
 - (void)stopNativeAutoScroll
@@ -303,8 +302,7 @@ using namespace facebook::react;
     _changedProps = NULL;
 
     // Autoscroll defaults
-    _autoScrollPixels = 15.0f;
-    _autoScrollInterval = 1.0;
+    _autoScrollPixels = 15.0f;   // px/sec
     _autoScrollResumeDelay = 3.0;
     _isAutoScrolling = NO;
     _isUserDragging = NO;
@@ -968,40 +966,45 @@ using namespace facebook::react;
     return nil;
 }
 
-- (void)startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)interval resumeDelay:(NSTimeInterval)resumeDelay
+- (void)startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)resumeDelay
 {
-    _autoScrollPixels = pixels;
-    _autoScrollInterval = interval;
+    _autoScrollPixels = pixels; // pixels per second
     _autoScrollResumeDelay = resumeDelay;
     _isAutoScrolling = YES;
 
     [self findPdfScrollView];
-    [self scheduleAutoScrollTimer];
+    [self startDisplayLink];
 }
 
 - (void)stopAutoScroll
 {
     _isAutoScrolling = NO;
-    [_autoScrollTimer invalidate];
-    _autoScrollTimer = nil;
+    [self stopDisplayLink];
     [_autoScrollResumeTimer invalidate];
     _autoScrollResumeTimer = nil;
 }
 
-- (void)scheduleAutoScrollTimer
+- (void)startDisplayLink
 {
-    [_autoScrollTimer invalidate];
-    _autoScrollTimer = [NSTimer scheduledTimerWithTimeInterval:_autoScrollInterval
-                                                       target:self
-                                                     selector:@selector(autoScrollTick:)
-                                                     userInfo:nil
-                                                      repeats:YES];
+    [_displayLink invalidate];
+    _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkTick:)];
+    [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 
-- (void)autoScrollTick:(NSTimer *)timer
+- (void)stopDisplayLink
+{
+    [_displayLink invalidate];
+    _displayLink = nil;
+}
+
+- (void)displayLinkTick:(CADisplayLink *)link
 {
     UIScrollView *scrollView = [self findPdfScrollView];
     if (!scrollView || _isUserDragging) return;
+
+    // Frame-rate-independent: use actual elapsed frame time (e.g. 1/60 or 1/120 on ProMotion)
+    CGFloat frameDuration = (CGFloat)(link.targetTimestamp - link.timestamp);
+    CGFloat pixelsThisFrame = _autoScrollPixels * frameDuration;
 
     CGFloat maxOffsetY = scrollView.contentSize.height - scrollView.bounds.size.height;
     if (maxOffsetY <= 0) {
@@ -1011,11 +1014,10 @@ using namespace facebook::react;
     }
 
     CGPoint offset = scrollView.contentOffset;
-    CGFloat newY = offset.y + _autoScrollPixels;
+    CGFloat newY = offset.y + pixelsThisFrame;
 
     if (newY >= maxOffsetY) {
-        newY = maxOffsetY;
-        [scrollView setContentOffset:CGPointMake(offset.x, newY) animated:NO];
+        [scrollView setContentOffset:CGPointMake(offset.x, maxOffsetY) animated:NO];
         [self stopAutoScroll];
         [self notifyOnChangeWithMessage:@"autoScrollEnd"];
         return;
@@ -1037,7 +1039,7 @@ using namespace facebook::react;
 - (void)autoScrollResumeFromTimer:(NSTimer *)timer
 {
     if (_isAutoScrolling && !_isUserDragging) {
-        [self scheduleAutoScrollTimer];
+        [self startDisplayLink];
     }
 }
 
@@ -1046,8 +1048,7 @@ using namespace facebook::react;
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
 {
     _isUserDragging = YES;
-    [_autoScrollTimer invalidate];
-    _autoScrollTimer = nil;
+    [self stopDisplayLink];
     [_autoScrollResumeTimer invalidate];
     _autoScrollResumeTimer = nil;
 

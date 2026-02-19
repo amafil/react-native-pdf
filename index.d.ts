@@ -69,12 +69,11 @@ export interface PdfProps {
 export interface PdfRef {
     setPage(pageNumber: number): void
     /**
-     * Start automatic vertical scrolling.
-     * @param pixels - Pixels to scroll per tick (default: 15)
-     * @param interval - Milliseconds between ticks (default: 1000)
+     * Start smooth automatic vertical scrolling using the display refresh rate.
+     * @param pixels - Scroll speed in pixels per second (default: 15). `interval` is ignored in smooth mode.
      * @param resumeDelay - Milliseconds to wait before resuming after user touch (default: 3000)
      */
-    startAutoScroll(pixels?: number, interval?: number, resumeDelay?: number): void
+    startAutoScroll(pixels?: number, resumeDelay?: number): void
     /** Stop automatic scrolling. */
     stopAutoScroll(): void
 }
