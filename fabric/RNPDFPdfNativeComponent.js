@@ -39,10 +39,19 @@
     viewRef: React.ElementRef<ComponentType>,
     page: Int32,
   ) => void;
+  +startNativeAutoScroll: (
+    viewRef: React.ElementRef<ComponentType>,
+    pixels: Double,
+    interval: Double,
+    resumeDelay: Double,
+  ) => void;
+  +stopNativeAutoScroll: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
-  supportedCommands: ['setNativePage'],
+  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll'],
 });
 
  export default codegenNativeComponent<NativeProps>('RNPDFPdfView');

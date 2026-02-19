@@ -29,8 +29,10 @@ RCTViewComponentView
 #else
 UIView
 #endif
-<UIGestureRecognizerDelegate>
+<UIGestureRecognizerDelegate, UIScrollViewDelegate>
 - (instancetype)initWithBridge:(RCTBridge *)bridge;
+- (void)startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)interval resumeDelay:(NSTimeInterval)resumeDelay;
+- (void)stopAutoScroll;
 
 @property(nonatomic, strong) NSString *path;
 @property(nonatomic) int page;

@@ -63,6 +63,7 @@ export default class Pdf extends Component {
         onPageSingleTap: PropTypes.func,
         onScaleChanged: PropTypes.func,
         onPressLink: PropTypes.func,
+        onAutoScrollEnd: PropTypes.func,
 
         // Props that are not available in the earlier react native version, added to prevent crashed on android
         accessibilityLabel: PropTypes.string,
@@ -107,6 +108,8 @@ export default class Pdf extends Component {
         },
         onPressLink: (url) => {
         },
+        onAutoScrollEnd: () => {
+        },
     };
 
     constructor(props) {
@@ -147,6 +150,7 @@ export default class Pdf extends Component {
 
     componentWillUnmount() {
         this._mounted = false;
+        this.stopAutoScroll();
         if (this.lastRNBFTask) {
             // this.lastRNBFTask.cancel(err => {
             // });
@@ -363,6 +367,47 @@ export default class Pdf extends Component {
         
     }
 
+    startAutoScroll( pixels = 15, interval = 1000, resumeDelay = 3000 ) {
+        this._isAutoScrollActive = true;
+        if (!!global?.nativeFabricUIManager) {
+            if (this._root) {
+                PdfViewCommands.startNativeAutoScroll(
+                    this._root,
+                    pixels,
+                    interval,
+                    resumeDelay,
+                );
+            }
+        } else {
+            const ReactNative = require('react-native');
+            ReactNative.UIManager.dispatchViewManagerCommand(
+                ReactNative.findNodeHandle(this._root),
+                'startNativeAutoScroll',
+                [pixels, interval, resumeDelay],
+            );
+        }
+    }
+
+    stopAutoScroll() {
+        this._isAutoScrollActive = false;
+        if (!!global?.nativeFabricUIManager) {
+            if (this._root) {
+                PdfViewCommands.stopNativeAutoScroll(
+                    this._root,
+                );
+            }
+        } else {
+            if (this._root) {
+                const ReactNative = require('react-native');
+                ReactNative.UIManager.dispatchViewManagerCommand(
+                    ReactNative.findNodeHandle(this._root),
+                    'stopNativeAutoScroll',
+                    [],
+                );
+            }
+        }
+    }
+
     _onChange = (event) => {
 
         let message = event.nativeEvent.message.split('|');
@@ -394,6 +439,9 @@ export default class Pdf extends Component {
                 this.props.onScaleChanged && this.props.onScaleChanged(Number(message[1]));
             } else if (message[0] === 'linkPressed') {
                 this.props.onPressLink && this.props.onPressLink(message[1]);
+            } else if (message[0] === 'autoScrollEnd') {
+                this._isAutoScrollActive = false;
+                this.props.onAutoScrollEnd && this.props.onAutoScrollEnd();
             }
         }
 
