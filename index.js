@@ -372,14 +372,13 @@ export default class Pdf extends Component {
         
     }
 
-    startAutoScroll( pixels = 15, interval = 1000, resumeDelay = 3000 ) {
+    startAutoScroll( pixels = 15, resumeDelay = 3000 ) {
         this._isAutoScrollActive = true;
         if (!!global?.nativeFabricUIManager) {
             if (this._root) {
                 PdfViewCommands.startNativeAutoScroll(
                     this._root,
                     pixels,
-                    interval,
                     resumeDelay,
                 );
             }
@@ -388,7 +387,7 @@ export default class Pdf extends Component {
             ReactNative.UIManager.dispatchViewManagerCommand(
                 ReactNative.findNodeHandle(this._root),
                 'startNativeAutoScroll',
-                [pixels, interval, resumeDelay],
+                [pixels, resumeDelay],
             );
         }
     }

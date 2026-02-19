@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.SizeF;
+import android.view.Choreographer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.util.Log;
@@ -95,19 +96,19 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private int oldH = 0;
 
     // Autoscroll
-    private Handler autoScrollHandler;
-    private Runnable autoScrollRunnable;
+    private Choreographer.FrameCallback autoScrollFrameCallback;
     private Runnable autoScrollResumeRunnable;
+    private Handler autoScrollResumeHandler;
     private boolean isAutoScrolling = false;
     private boolean isUserTouching = false;
-    private float autoScrollPixels = 15f;
-    private long autoScrollInterval = 1000L;
+    private float autoScrollPixels = 15f;   // pixels per second
     private long autoScrollResumeDelay = 3000L;
+    private long lastFrameTimeNanos = 0;
 
     public PdfView(Context context, AttributeSet set){
         super(context, set);
         ConfigKt.setPdfiumConfig(new Config(new DefaultLogger(), AlreadyClosedBehavior.IGNORE));
-        autoScrollHandler = new Handler(Looper.getMainLooper());
+        autoScrollResumeHandler = new Handler(Looper.getMainLooper());
     }
 
     @Override
@@ -115,9 +116,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             isUserTouching = true;
-            if (isAutoScrolling) {
-                autoScrollHandler.removeCallbacks(autoScrollRunnable);
-                autoScrollHandler.removeCallbacks(autoScrollResumeRunnable);
+            if (isAutoScrolling && autoScrollFrameCallback != null) {
+                Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
+                autoScrollResumeHandler.removeCallbacks(autoScrollResumeRunnable);
+                lastFrameTimeNanos = 0;
             }
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             isUserTouching = false;
@@ -577,17 +579,31 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
     // Autoscroll methods
 
-    public void startAutoScroll(float pixels, long intervalMs, long resumeDelayMs) {
-        this.autoScrollPixels = pixels;
-        this.autoScrollInterval = intervalMs;
+    public void startAutoScroll(float pixels, long resumeDelayMs) {
+        this.autoScrollPixels = pixels; // pixels per second
         this.autoScrollResumeDelay = resumeDelayMs;
         this.isAutoScrolling = true;
+        this.lastFrameTimeNanos = 0;
 
-        if (autoScrollRunnable == null) {
-            autoScrollRunnable = new Runnable() {
+        if (autoScrollFrameCallback == null) {
+            autoScrollFrameCallback = new Choreographer.FrameCallback() {
                 @Override
-                public void run() {
-                    if (!isAutoScrolling || isUserTouching) return;
+                public void doFrame(long frameTimeNanos) {
+                    if (!isAutoScrolling || isUserTouching) {
+                        lastFrameTimeNanos = 0;
+                        return;
+                    }
+
+                    // Skip first frame to establish baseline timestamp
+                    if (lastFrameTimeNanos == 0) {
+                        lastFrameTimeNanos = frameTimeNanos;
+                        Choreographer.getInstance().postFrameCallback(this);
+                        return;
+                    }
+
+                    float elapsedSeconds = (frameTimeNanos - lastFrameTimeNanos) / 1_000_000_000f;
+                    lastFrameTimeNanos = frameTimeNanos;
+                    float scrollAmount = autoScrollPixels * elapsedSeconds;
 
                     float currentY = getCurrentYOffset();
                     float totalHeight = 0;
@@ -604,8 +620,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                         return;
                     }
 
-                    // currentY is negative (barteksc convention: 0 at top, more negative = scrolled further)
-                    float newY = currentY - autoScrollPixels;
+                    // currentY is negative in barteksc (0 = top, more negative = further down)
+                    float newY = currentY - scrollAmount;
                     float minY = -maxScroll;
 
                     if (newY <= minY) {
@@ -616,7 +632,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     }
 
                     moveTo(0, newY);
-                    autoScrollHandler.postDelayed(this, autoScrollInterval);
+                    Choreographer.getInstance().postFrameCallback(this);
                 }
             };
         }
@@ -626,27 +642,31 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 @Override
                 public void run() {
                     if (isAutoScrolling && !isUserTouching) {
-                        autoScrollHandler.post(autoScrollRunnable);
+                        lastFrameTimeNanos = 0;
+                        Choreographer.getInstance().postFrameCallback(autoScrollFrameCallback);
                     }
                 }
             };
         }
 
-        autoScrollHandler.removeCallbacks(autoScrollRunnable);
-        autoScrollHandler.post(autoScrollRunnable);
+        Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
+        Choreographer.getInstance().postFrameCallback(autoScrollFrameCallback);
     }
 
     public void stopAutoScroll() {
         this.isAutoScrolling = false;
-        if (autoScrollHandler != null) {
-            if (autoScrollRunnable != null) autoScrollHandler.removeCallbacks(autoScrollRunnable);
-            if (autoScrollResumeRunnable != null) autoScrollHandler.removeCallbacks(autoScrollResumeRunnable);
+        this.lastFrameTimeNanos = 0;
+        if (autoScrollFrameCallback != null) {
+            Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
+        }
+        if (autoScrollResumeHandler != null && autoScrollResumeRunnable != null) {
+            autoScrollResumeHandler.removeCallbacks(autoScrollResumeRunnable);
         }
     }
 
     private void scheduleAutoScrollResume() {
-        autoScrollHandler.removeCallbacks(autoScrollResumeRunnable);
-        autoScrollHandler.postDelayed(autoScrollResumeRunnable, autoScrollResumeDelay);
+        autoScrollResumeHandler.removeCallbacks(autoScrollResumeRunnable);
+        autoScrollResumeHandler.postDelayed(autoScrollResumeRunnable, autoScrollResumeDelay);
     }
 
     private void dispatchAutoScrollEndEvent() {

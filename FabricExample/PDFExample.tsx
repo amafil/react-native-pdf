@@ -40,6 +40,8 @@ interface PDFExampleState {
   objectURL?: string;
   blob?: Blob;
   isAutoScrolling: boolean;
+  autoScrollSpeed: number;
+  autoScrollResumeDelay: number;
 }
 
 export default class PDFExample extends React.Component<
@@ -59,6 +61,8 @@ export default class PDFExample extends React.Component<
       showsVerticalScrollIndicator: true,
       width: WIN_WIDTH,
       isAutoScrolling: false,
+      autoScrollSpeed: 15,
+      autoScrollResumeDelay: 3000,
     };
     this.pdf = null;
   }
@@ -143,9 +147,30 @@ export default class PDFExample extends React.Component<
       this.pdf?.stopAutoScroll();
       this.setState({ isAutoScrolling: false });
     } else {
-      this.pdf?.startAutoScroll(15, 1000, 3000);
+      const { autoScrollSpeed, autoScrollResumeDelay } = this.state;
+      this.pdf?.startAutoScroll(autoScrollSpeed, autoScrollResumeDelay);
       this.setState({ isAutoScrolling: true });
     }
+  };
+
+  adjustSpeed = (delta: number): void => {
+    const next = Math.min(120, Math.max(5, this.state.autoScrollSpeed + delta));
+    this.setState({ autoScrollSpeed: next }, () => {
+      if (this.state.isAutoScrolling) {
+        this.pdf?.stopAutoScroll();
+        this.pdf?.startAutoScroll(next, this.state.autoScrollResumeDelay);
+      }
+    });
+  };
+
+  adjustResumeDelay = (delta: number): void => {
+    const next = Math.min(10000, Math.max(500, this.state.autoScrollResumeDelay + delta));
+    this.setState({ autoScrollResumeDelay: next }, () => {
+      if (this.state.isAutoScrolling) {
+        this.pdf?.stopAutoScroll();
+        this.pdf?.startAutoScroll(this.state.autoScrollSpeed, next);
+      }
+    });
   };
 
   render(): React.ReactNode {
@@ -226,7 +251,7 @@ export default class PDFExample extends React.Component<
                 )}
             </TouchableHighlight>
         </View>
-        <View style={{ flexDirection: 'row' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <TouchableHighlight
                 style={this.state.isAutoScrolling ? styles.btnActive : styles.btn}
                 onPress={() => this.toggleAutoScroll()}
@@ -234,6 +259,48 @@ export default class PDFExample extends React.Component<
                 <Text style={styles.btnText}>
                     {this.state.isAutoScrolling ? 'Auto Scroll: ON' : 'Auto Scroll: OFF'}
                 </Text>
+            </TouchableHighlight>
+            <View style={styles.btnText}>
+                <Text style={styles.btnText}>Speed:</Text>
+            </View>
+            <TouchableHighlight
+                style={this.state.autoScrollSpeed <= 5 ? styles.btnDisable : styles.btn}
+                disabled={this.state.autoScrollSpeed <= 5}
+                onPress={() => this.adjustSpeed(-5)}
+            >
+                <Text style={styles.btnText}>{'−'}</Text>
+            </TouchableHighlight>
+            <View style={styles.btnText}>
+                <Text style={styles.btnText}>{`${this.state.autoScrollSpeed} px/s`}</Text>
+            </View>
+            <TouchableHighlight
+                style={this.state.autoScrollSpeed >= 120 ? styles.btnDisable : styles.btn}
+                disabled={this.state.autoScrollSpeed >= 120}
+                onPress={() => this.adjustSpeed(5)}
+            >
+                <Text style={styles.btnText}>{'+'}</Text>
+            </TouchableHighlight>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={styles.btnText}>
+                <Text style={styles.btnText}>Resume delay:</Text>
+            </View>
+            <TouchableHighlight
+                style={this.state.autoScrollResumeDelay <= 500 ? styles.btnDisable : styles.btn}
+                disabled={this.state.autoScrollResumeDelay <= 500}
+                onPress={() => this.adjustResumeDelay(-500)}
+            >
+                <Text style={styles.btnText}>{'−'}</Text>
+            </TouchableHighlight>
+            <View style={styles.btnText}>
+                <Text style={styles.btnText}>{`${this.state.autoScrollResumeDelay} ms`}</Text>
+            </View>
+            <TouchableHighlight
+                style={this.state.autoScrollResumeDelay >= 10000 ? styles.btnDisable : styles.btn}
+                disabled={this.state.autoScrollResumeDelay >= 10000}
+                onPress={() => this.adjustResumeDelay(500)}
+            >
+                <Text style={styles.btnText}>{'+'}</Text>
             </TouchableHighlight>
         </View>
         </>

@@ -162,8 +162,8 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
     }
 
     @Override
-    public void startNativeAutoScroll(PdfView view, double pixels, double interval, double resumeDelay) {
-        view.startAutoScroll((float) pixels, (long) interval, (long) resumeDelay);
+    public void startNativeAutoScroll(PdfView view, double pixels, double resumeDelay) {
+        view.startAutoScroll((float) pixels, (long) resumeDelay);
     }
 
     @Override
@@ -181,7 +181,7 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
         } else if ("startNativeAutoScroll".equals(commandId)) {
             Assertions.assertNotNull(args);
             assert args != null;
-            startNativeAutoScroll(root, args.getDouble(0), args.getDouble(1), args.getDouble(2));
+            startNativeAutoScroll(root, args.getDouble(0), args.getDouble(1));
         } else if ("stopNativeAutoScroll".equals(commandId)) {
             stopNativeAutoScroll(root);
         }

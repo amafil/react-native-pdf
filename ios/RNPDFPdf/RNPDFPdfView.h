@@ -33,7 +33,7 @@ UIView
 #endif
 <UIGestureRecognizerDelegate, UIScrollViewDelegate>
 - (instancetype)initWithBridge:(RCTBridge *)bridge;
-- (void)startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)interval resumeDelay:(NSTimeInterval)resumeDelay;
+- (void)startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)resumeDelay;
 - (void)stopAutoScroll;
 
 @property(nonatomic, strong) NSString *path;

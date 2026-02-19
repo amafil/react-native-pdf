@@ -42,7 +42,6 @@
   +startNativeAutoScroll: (
     viewRef: React.ElementRef<ComponentType>,
     pixels: Double,
-    interval: Double,
     resumeDelay: Double,
   ) => void;
   +stopNativeAutoScroll: (

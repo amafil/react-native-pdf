@@ -56,13 +56,12 @@ RCT_EXPORT_VIEW_PROPERTY(onTextSelectionChange, RCTBubblingEventBlock);
 
 RCT_EXPORT_METHOD(startAutoScroll:(nonnull NSNumber *)reactTag
                   pixels:(double)pixels
-                  interval:(double)interval
                   resumeDelay:(double)resumeDelay)
 {
     [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
         RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
         if ([view isKindOfClass:[RNPDFPdfView class]]) {
-            [view startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)(interval / 1000.0) resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
+            [view startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
         }
     }];
 }
