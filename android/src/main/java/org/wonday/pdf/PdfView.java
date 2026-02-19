@@ -94,9 +94,38 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private int oldW = 0;
     private int oldH = 0;
 
+    // Autoscroll
+    private Handler autoScrollHandler;
+    private Runnable autoScrollRunnable;
+    private Runnable autoScrollResumeRunnable;
+    private boolean isAutoScrolling = false;
+    private boolean isUserTouching = false;
+    private float autoScrollPixels = 15f;
+    private long autoScrollInterval = 1000L;
+    private long autoScrollResumeDelay = 3000L;
+
     public PdfView(Context context, AttributeSet set){
         super(context, set);
         ConfigKt.setPdfiumConfig(new Config(new DefaultLogger(), AlreadyClosedBehavior.IGNORE));
+        autoScrollHandler = new Handler(Looper.getMainLooper());
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            isUserTouching = true;
+            if (isAutoScrolling) {
+                autoScrollHandler.removeCallbacks(autoScrollRunnable);
+                autoScrollHandler.removeCallbacks(autoScrollResumeRunnable);
+            }
+        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            isUserTouching = false;
+            if (isAutoScrolling) {
+                scheduleAutoScrollResume();
+            }
+        }
+        return super.dispatchTouchEvent(event);
     }
 
     @Override
@@ -543,6 +572,95 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 View child = vg.getChildAt(i);
                 setTouchesEnabled(child, enabled);
             }
+        }
+    }
+
+    // Autoscroll methods
+
+    public void startAutoScroll(float pixels, long intervalMs, long resumeDelayMs) {
+        this.autoScrollPixels = pixels;
+        this.autoScrollInterval = intervalMs;
+        this.autoScrollResumeDelay = resumeDelayMs;
+        this.isAutoScrolling = true;
+
+        if (autoScrollRunnable == null) {
+            autoScrollRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isAutoScrolling || isUserTouching) return;
+
+                    float currentY = getCurrentYOffset();
+                    float totalHeight = 0;
+                    int pageCount = getPageCount();
+                    for (int i = 0; i < pageCount; i++) {
+                        totalHeight += getPageSize(i).getHeight() * getZoom();
+                    }
+                    totalHeight += spacing * (pageCount - 1) * getZoom();
+                    float maxScroll = totalHeight - getHeight();
+
+                    if (maxScroll <= 0) {
+                        stopAutoScroll();
+                        dispatchAutoScrollEndEvent();
+                        return;
+                    }
+
+                    // currentY is negative (barteksc convention: 0 at top, more negative = scrolled further)
+                    float newY = currentY - autoScrollPixels;
+                    float minY = -maxScroll;
+
+                    if (newY <= minY) {
+                        moveTo(0, minY);
+                        stopAutoScroll();
+                        dispatchAutoScrollEndEvent();
+                        return;
+                    }
+
+                    moveTo(0, newY);
+                    autoScrollHandler.postDelayed(this, autoScrollInterval);
+                }
+            };
+        }
+
+        if (autoScrollResumeRunnable == null) {
+            autoScrollResumeRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (isAutoScrolling && !isUserTouching) {
+                        autoScrollHandler.post(autoScrollRunnable);
+                    }
+                }
+            };
+        }
+
+        autoScrollHandler.removeCallbacks(autoScrollRunnable);
+        autoScrollHandler.post(autoScrollRunnable);
+    }
+
+    public void stopAutoScroll() {
+        this.isAutoScrolling = false;
+        if (autoScrollHandler != null) {
+            if (autoScrollRunnable != null) autoScrollHandler.removeCallbacks(autoScrollRunnable);
+            if (autoScrollResumeRunnable != null) autoScrollHandler.removeCallbacks(autoScrollResumeRunnable);
+        }
+    }
+
+    private void scheduleAutoScrollResume() {
+        autoScrollHandler.removeCallbacks(autoScrollResumeRunnable);
+        autoScrollHandler.postDelayed(autoScrollResumeRunnable, autoScrollResumeDelay);
+    }
+
+    private void dispatchAutoScrollEndEvent() {
+        WritableMap event = Arguments.createMap();
+        event.putString("message", "autoScrollEnd");
+
+        ThemedReactContext context = (ThemedReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(context, getId());
+        int surfaceId = UIManagerHelper.getSurfaceId(this);
+
+        TopChangeEvent tce = new TopChangeEvent(surfaceId, getId(), event);
+
+        if (dispatcher != null) {
+            dispatcher.dispatchEvent(tce);
         }
     }
 }

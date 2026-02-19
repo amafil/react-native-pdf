@@ -39,6 +39,7 @@ interface PDFExampleState {
   width: number;
   objectURL?: string;
   blob?: Blob;
+  isAutoScrolling: boolean;
 }
 
 export default class PDFExample extends React.Component<
@@ -57,6 +58,7 @@ export default class PDFExample extends React.Component<
       showsHorizontalScrollIndicator: true,
       showsVerticalScrollIndicator: true,
       width: WIN_WIDTH,
+      isAutoScrolling: false,
     };
     this.pdf = null;
   }
@@ -134,6 +136,16 @@ export default class PDFExample extends React.Component<
     this.setState({
       showsVerticalScrollIndicator: !this.state.showsVerticalScrollIndicator,
     });
+  };
+
+  toggleAutoScroll = (): void => {
+    if (this.state.isAutoScrolling) {
+      this.pdf?.stopAutoScroll();
+      this.setState({ isAutoScrolling: false });
+    } else {
+      this.pdf?.startAutoScroll(15, 1000, 3000);
+      this.setState({ isAutoScrolling: true });
+    }
   };
 
   render(): React.ReactNode {
@@ -214,6 +226,16 @@ export default class PDFExample extends React.Component<
                 )}
             </TouchableHighlight>
         </View>
+        <View style={{ flexDirection: 'row' }}>
+            <TouchableHighlight
+                style={this.state.isAutoScrolling ? styles.btnActive : styles.btn}
+                onPress={() => this.toggleAutoScroll()}
+            >
+                <Text style={styles.btnText}>
+                    {this.state.isAutoScrolling ? 'Auto Scroll: ON' : 'Auto Scroll: OFF'}
+                </Text>
+            </TouchableHighlight>
+        </View>
         </>
     );
 
@@ -252,6 +274,10 @@ export default class PDFExample extends React.Component<
                 onError={(error: unknown) => {
                 console.log(error);
                 }}
+                onAutoScrollEnd={() => {
+                this.setState({ isAutoScrolling: false });
+                console.log('Auto scroll reached the end');
+                }}
                 style={{ flex: 1 }}
             />
         </View>
@@ -276,6 +302,11 @@ const styles = StyleSheet.create({
     margin: 2,
     padding: 2,
     backgroundColor: 'gray',
+  },
+  btnActive: {
+    margin: 2,
+    padding: 2,
+    backgroundColor: '#90EE90',
   },
   btnText: {
     margin: 2,

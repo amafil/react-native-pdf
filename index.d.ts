@@ -79,10 +79,20 @@ export interface PdfProps {
     onScaleChanged?: (scale: number) => void,
     onPressLink?: (url: string) => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
+    onAutoScrollEnd?: () => void,
 }
 
 export interface PdfRef {
     setPage(pageNumber: number): void
+    /**
+     * Start automatic vertical scrolling.
+     * @param pixels - Pixels to scroll per tick (default: 15)
+     * @param interval - Milliseconds between ticks (default: 1000)
+     * @param resumeDelay - Milliseconds to wait before resuming after user touch (default: 3000)
+     */
+    startAutoScroll(pixels?: number, interval?: number, resumeDelay?: number): void
+    /** Stop automatic scrolling. */
+    stopAutoScroll(): void
 }
 
 declare const Pdf: React.ForwardRefExoticComponent<PdfProps & React.RefAttributes<PdfRef>>

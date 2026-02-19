@@ -11,6 +11,7 @@ A react native PDF view component (cross-platform support)
 * double tap for zoom
 * support password protected pdf
 * jump to a specific page in the pdf
+* auto scroll with configurable speed (ideal for music sheets)
 
 ### Supported versions
 We use [`react-native-blob-util`](https://github.com/RonRadtke/react-native-blob-util) to handle file system access in this package,
@@ -364,6 +365,7 @@ const styles = StyleSheet.create({
 | onPageSingleTap                |                        function(page)                         |           null           | callback when page was single tapped                                                                                                                                          | ✔   | ✔       | ✔                           | 3.0                      |
 | onScaleChanged                 |                        function(scale)                        |           null           | callback when scale page                                                                                                                                                      | ✔   | ✔       | ✔                           | 3.0                      |
 | onPressLink                    |                         function(uri)                         |           null           | callback when link tapped                                                                                                                                                     | ✔   | ✔       | ✖                           | 6.0.0                    |
+| onAutoScrollEnd                |                         function()                            |           null           | callback when autoscroll reaches the end of the document                                                                                                                      | ✔   | ✔       | ✖                           | 7.1.0                    |
 
 #### parameters of source
 
@@ -393,6 +395,8 @@ const styles = StyleSheet.create({
 \*) requires building React Native from source with [this patch](https://github.com/facebook/react-native/pull/31789)
 ### Methods
 * [setPage](#setPage)
+* [startAutoScroll](#startAutoScroll)
+* [stopAutoScroll](#stopAutoScroll)
 
 Methods operate on a ref to the PDF element. You can get a ref with the following code:
 ```
@@ -413,4 +417,42 @@ Set the current page of the PDF component. pageNumber is a positive integer. If 
 Example:
 ```
 this.pdf.setPage(42); // Display the answer to the Ultimate Question of Life, the Universe, and Everything
+```
+
+#### startAutoScroll()
+`startAutoScroll(pixels?, interval?, resumeDelay?)`
+
+Start automatic vertical scrolling. Ideal for hands-free reading of music sheets or long documents.
+
+| Parameter   | Type   | Default | Description                                          |
+| ----------- | ------ | ------- | ---------------------------------------------------- |
+| pixels      | number | 15      | Pixels to scroll per tick                            |
+| interval    | number | 1000    | Milliseconds between scroll ticks                    |
+| resumeDelay | number | 3000    | Milliseconds to wait before resuming after user touch |
+
+The scroll pauses automatically when the user touches the PDF and resumes after `resumeDelay` milliseconds. When the scroll reaches the end of the document it stops and the `onAutoScrollEnd` callback fires.
+
+Example (music sheet use case):
+```js
+// Start slow auto scroll for reading music sheets
+this.pdf.startAutoScroll(10, 800, 3000);
+
+// In your component:
+<Pdf
+  ref={(pdf) => { this.pdf = pdf; }}
+  source={{ uri: 'path/to/music-sheet.pdf' }}
+  onAutoScrollEnd={() => {
+    console.log('Reached the end of the score');
+  }}
+/>
+```
+
+#### stopAutoScroll()
+`stopAutoScroll()`
+
+Stop the automatic scrolling. The scroll will not resume until `startAutoScroll()` is called again.
+
+Example:
+```
+this.pdf.stopAutoScroll();
 ```

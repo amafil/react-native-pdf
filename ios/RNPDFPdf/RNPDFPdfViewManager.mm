@@ -11,6 +11,12 @@
 #import "RNPDFPdfViewManager.h"
 #import "RNPDFPdfView.h"
 
+#if __has_include(<React/RCTUIManager.h>)
+#import <React/RCTUIManager.h>
+#else
+#import "RCTUIManager.h"
+#endif
+
 
 @implementation RNPDFPdfViewManager
 
@@ -47,6 +53,29 @@ RCT_EXPORT_VIEW_PROPERTY(onChange, RCTBubblingEventBlock);
 RCT_EXPORT_VIEW_PROPERTY(singlePage, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(enableTextSelection, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(onTextSelectionChange, RCTBubblingEventBlock);
+
+RCT_EXPORT_METHOD(startAutoScroll:(nonnull NSNumber *)reactTag
+                  pixels:(double)pixels
+                  interval:(double)interval
+                  resumeDelay:(double)resumeDelay)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
+        if ([view isKindOfClass:[RNPDFPdfView class]]) {
+            [view startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)(interval / 1000.0) resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
+        }
+    }];
+}
+
+RCT_EXPORT_METHOD(stopAutoScroll:(nonnull NSNumber *)reactTag)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
+        if ([view isKindOfClass:[RNPDFPdfView class]]) {
+            [view stopAutoScroll];
+        }
+    }];
+}
 
 RCT_EXPORT_METHOD(supportPDFKit:(RCTResponseSenderBlock)callback)
 {

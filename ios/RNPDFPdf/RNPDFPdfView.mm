@@ -75,6 +75,17 @@ const float MIN_SCALE = 1.0f;
     UIPinchGestureRecognizer *_pinchRecognizer;
     UILongPressGestureRecognizer *_longPressRecognizer;
     UITapGestureRecognizer *_doubleTapEmptyRecognizer;
+
+    // Autoscroll
+    NSTimer *_autoScrollTimer;
+    NSTimer *_autoScrollResumeTimer;
+    CGFloat _autoScrollPixels;
+    NSTimeInterval _autoScrollInterval;
+    NSTimeInterval _autoScrollResumeDelay;
+    BOOL _isAutoScrolling;
+    BOOL _isUserDragging;
+    UIScrollView *_pdfScrollView;
+    __weak id<UIScrollViewDelegate> _originalScrollDelegate;
 }
 
 #ifdef RCT_NEW_ARCH_ENABLED
@@ -190,6 +201,10 @@ using namespace facebook::react;
 {
     [super prepareForRecycle];
 
+    [self stopAutoScroll];
+    _pdfScrollView = nil;
+    _originalScrollDelegate = nil;
+
     [_pdfView removeFromSuperview];
     _pdfDocument = Nil;
     _pdfView = Nil;
@@ -232,6 +247,16 @@ using namespace facebook::react;
 {
     _page = page;
     [self didSetProps:[NSArray arrayWithObject:@"page"]];
+}
+
+- (void)startNativeAutoScroll:(double)pixels interval:(double)interval resumeDelay:(double)resumeDelay
+{
+    [self startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)(interval / 1000.0) resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
+}
+
+- (void)stopNativeAutoScroll
+{
+    [self stopAutoScroll];
 }
 
 #endif
@@ -279,6 +304,15 @@ using namespace facebook::react;
     _fixScaleFactor = -1.0f;
     _initialed = NO;
     _changedProps = NULL;
+
+    // Autoscroll defaults
+    _autoScrollPixels = 15.0f;
+    _autoScrollInterval = 1.0;
+    _autoScrollResumeDelay = 3.0;
+    _isAutoScrolling = NO;
+    _isUserDragging = NO;
+    _pdfScrollView = nil;
+    _originalScrollDelegate = nil;
 
     [self addSubview:_pdfView];
 
@@ -599,6 +633,8 @@ using namespace facebook::react;
 }
 
 - (void)dealloc{
+
+    [self stopAutoScroll];
 
     _pdfDocument = Nil;
     _pdfView = Nil;
@@ -947,6 +983,143 @@ using namespace facebook::react;
     
     for (UIView *subview in view.subviews) {
         [self setScrollIndicators:subview horizontal:horizontal vertical:vertical depth:depth + 1];
+    }
+}
+
+#pragma mark - Autoscroll
+
+- (UIScrollView *)findPdfScrollView
+{
+    if (_pdfScrollView) return _pdfScrollView;
+    for (UIView *subview in _pdfView.subviews) {
+        if ([subview isKindOfClass:[UIScrollView class]]) {
+            _pdfScrollView = (UIScrollView *)subview;
+            _originalScrollDelegate = _pdfScrollView.delegate;
+            _pdfScrollView.delegate = self;
+            return _pdfScrollView;
+        }
+    }
+    return nil;
+}
+
+- (void)startAutoScroll:(CGFloat)pixels interval:(NSTimeInterval)interval resumeDelay:(NSTimeInterval)resumeDelay
+{
+    _autoScrollPixels = pixels;
+    _autoScrollInterval = interval;
+    _autoScrollResumeDelay = resumeDelay;
+    _isAutoScrolling = YES;
+
+    [self findPdfScrollView];
+    [self scheduleAutoScrollTimer];
+}
+
+- (void)stopAutoScroll
+{
+    _isAutoScrolling = NO;
+    [_autoScrollTimer invalidate];
+    _autoScrollTimer = nil;
+    [_autoScrollResumeTimer invalidate];
+    _autoScrollResumeTimer = nil;
+}
+
+- (void)scheduleAutoScrollTimer
+{
+    [_autoScrollTimer invalidate];
+    _autoScrollTimer = [NSTimer scheduledTimerWithTimeInterval:_autoScrollInterval
+                                                       target:self
+                                                     selector:@selector(autoScrollTick:)
+                                                     userInfo:nil
+                                                      repeats:YES];
+}
+
+- (void)autoScrollTick:(NSTimer *)timer
+{
+    UIScrollView *scrollView = [self findPdfScrollView];
+    if (!scrollView || _isUserDragging) return;
+
+    CGFloat maxOffsetY = scrollView.contentSize.height - scrollView.bounds.size.height;
+    if (maxOffsetY <= 0) {
+        [self stopAutoScroll];
+        [self notifyOnChangeWithMessage:@"autoScrollEnd"];
+        return;
+    }
+
+    CGPoint offset = scrollView.contentOffset;
+    CGFloat newY = offset.y + _autoScrollPixels;
+
+    if (newY >= maxOffsetY) {
+        newY = maxOffsetY;
+        [scrollView setContentOffset:CGPointMake(offset.x, newY) animated:NO];
+        [self stopAutoScroll];
+        [self notifyOnChangeWithMessage:@"autoScrollEnd"];
+        return;
+    }
+
+    [scrollView setContentOffset:CGPointMake(offset.x, newY) animated:NO];
+}
+
+- (void)scheduleAutoScrollResume
+{
+    [_autoScrollResumeTimer invalidate];
+    _autoScrollResumeTimer = [NSTimer scheduledTimerWithTimeInterval:_autoScrollResumeDelay
+                                                             target:self
+                                                           selector:@selector(autoScrollResumeFromTimer:)
+                                                           userInfo:nil
+                                                            repeats:NO];
+}
+
+- (void)autoScrollResumeFromTimer:(NSTimer *)timer
+{
+    if (_isAutoScrolling && !_isUserDragging) {
+        [self scheduleAutoScrollTimer];
+    }
+}
+
+#pragma mark - UIScrollViewDelegate (autoscroll pause/resume)
+
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
+{
+    _isUserDragging = YES;
+    [_autoScrollTimer invalidate];
+    _autoScrollTimer = nil;
+    [_autoScrollResumeTimer invalidate];
+    _autoScrollResumeTimer = nil;
+
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewWillBeginDragging:)]) {
+        [_originalScrollDelegate scrollViewWillBeginDragging:scrollView];
+    }
+}
+
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate
+{
+    if (!decelerate) {
+        _isUserDragging = NO;
+        if (_isAutoScrolling) {
+            [self scheduleAutoScrollResume];
+        }
+    }
+
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidEndDragging:willDecelerate:)]) {
+        [_originalScrollDelegate scrollViewDidEndDragging:scrollView willDecelerate:decelerate];
+    }
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView
+{
+    _isUserDragging = NO;
+    if (_isAutoScrolling) {
+        [self scheduleAutoScrollResume];
+    }
+
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidEndDecelerating:)]) {
+        [_originalScrollDelegate scrollViewDidEndDecelerating:scrollView];
+    }
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+{
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidScroll:)]) {
+        [_originalScrollDelegate scrollViewDidScroll:scrollView];
     }
 }
 
