@@ -6,377 +6,710 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
-  TouchableHighlight,
-  Dimensions,
+  Pressable,
   View,
   Text,
   Platform,
+  StatusBar,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Pdf from 'react-native-pdf';
 import Orientation from 'react-native-orientation-locker';
 
-const WIN_WIDTH = Dimensions.get('window').width;
-const WIN_HEIGHT = Dimensions.get('window').height;
 
-type OrientationType =
-  | 'LANDSCAPE-LEFT'
-  | 'LANDSCAPE-RIGHT'
-  | 'PORTRAIT'
-  | string;
+type OrientationType = 'LANDSCAPE-LEFT' | 'LANDSCAPE-RIGHT' | 'PORTRAIT' | string;
 
-interface PDFExampleState {
-  page: number;
-  scale: number;
-  numberOfPages: number;
-  horizontal: boolean;
-  showsHorizontalScrollIndicator: boolean;
-  showsVerticalScrollIndicator: boolean;
-  width: number;
-  objectURL?: string;
-  blob?: Blob;
-  isAutoScrolling: boolean;
-  autoScrollSpeed: number;
-  autoScrollResumeDelay: number;
+// ── Design tokens ──────────────────────────────────────────────────────────────
+const colors = {
+  bg:           '#000000',
+  toolbarBg:    '#1C1C1E',
+  surface:      '#2C2C2E',
+  sheetBg:      '#1C1C1E',
+  sectionBg:    '#2C2C2E',
+  accent:       '#0A84FF',
+  accentActive: '#30D158',
+  disabledBg:   '#3A3A3C',
+  disabledText: '#636366',
+  text:         '#FFFFFF',
+  textSecondary:'#AEAEB2',
+  border:       '#38383A',
+  scrim:        'rgba(0,0,0,0.55)',
+};
+
+// ── Small icon-style button (toolbar) ─────────────────────────────────────────
+interface IconBtnProps {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  testID?: string;
+  accessibilityLabel: string;
+  accessibilityHint?: string;
+}
+function IconBtn({ label, onPress, disabled = false, testID, accessibilityLabel, accessibilityHint }: IconBtnProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled }}
+      hitSlop={6}
+      style={({ pressed }) => [
+        styles.iconBtn,
+        disabled && styles.iconBtnDisabled,
+        pressed && !disabled && styles.iconBtnPressed,
+      ]}
+    >
+      <Text style={[styles.iconBtnText, disabled && styles.iconBtnTextDisabled]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
 }
 
-export default class PDFExample extends React.Component<
-  Record<string, never>,
-  PDFExampleState
-> {
-  private pdf: any; // usare `Pdf | null` se le typings del pacchetto esportano il tipo
-
-  constructor(props: Record<string, never>) {
-    super(props);
-    this.state = {
-      page: 1,
-      scale: 1,
-      numberOfPages: 0,
-      horizontal: false,
-      showsHorizontalScrollIndicator: true,
-      showsVerticalScrollIndicator: true,
-      width: WIN_WIDTH,
-      isAutoScrolling: false,
-      autoScrollSpeed: 15,
-      autoScrollResumeDelay: 3000,
-    };
-    this.pdf = null;
-  }
-
-  _onOrientationDidChange = (orientation: OrientationType): void => {
-    if (orientation === 'LANDSCAPE-LEFT' || orientation === 'LANDSCAPE-RIGHT') {
-      this.setState({
-        width: WIN_HEIGHT > WIN_WIDTH ? WIN_HEIGHT : WIN_WIDTH,
-        horizontal: true,
-      });
-    } else {
-      this.setState({
-        width: WIN_HEIGHT > WIN_WIDTH ? WIN_HEIGHT : WIN_WIDTH,
-        horizontal: false,
-      });
-    }
-  };
-
-  componentDidMount(): void {
-    Orientation.addOrientationListener(this._onOrientationDidChange);
-
-    (async () => {
-      const url = 'https://www.africau.edu/images/default/sample.pdf';
-      // handling blobs larger than 64 KB on Android requires patching React Native (https://github.com/facebook/react-native/pull/31789)
-      const result = await fetch(url);
-      const blob = await result.blob();
-      const objectURL = URL.createObjectURL(blob);
-      this.setState({ ...this.state, objectURL, blob }); // keep blob in state so it doesn't get garbage-collected
-    })();
-  }
-
-  componentWillUnmount(): void {
-    Orientation.removeOrientationListener(this._onOrientationDidChange);
-  }
-
-  prePage = (): void => {
-    const prePage = this.state.page > 1 ? this.state.page - 1 : 1;
-    this.pdf?.setPage(prePage);
-    console.log(`prePage: ${prePage}`);
-  };
-
-  nextPage = (): void => {
-    const nextPage =
-      this.state.page + 1 > this.state.numberOfPages
-        ? this.state.numberOfPages
-        : this.state.page + 1;
-    this.pdf?.setPage(nextPage);
-    console.log(`nextPage: ${nextPage}`);
-  };
-
-  zoomOut = (): void => {
-    const scale = this.state.scale > 1 ? this.state.scale / 1.2 : 1;
-    this.setState({ scale });
-    console.log(`zoomOut scale: ${scale}`);
-  };
-
-  zoomIn = (): void => {
-    let scale = this.state.scale * 1.2;
-    scale = scale > 3 ? 3 : scale;
-    this.setState({ scale });
-    console.log(`zoomIn scale: ${scale}`);
-  };
-
-  switchHorizontal = (): void => {
-    this.setState({ horizontal: !this.state.horizontal, page: this.state.page });
-  };
-
-  switchShowsHorizontalScrollIndicator = (): void => {
-    this.setState({
-      showsHorizontalScrollIndicator: !this.state.showsHorizontalScrollIndicator,
-    });
-  };
-
-  switchShowsVerticalScrollIndicator = (): void => {
-    this.setState({
-      showsVerticalScrollIndicator: !this.state.showsVerticalScrollIndicator,
-    });
-  };
-
-  toggleAutoScroll = (): void => {
-    if (this.state.isAutoScrolling) {
-      this.pdf?.stopAutoScroll();
-      this.setState({ isAutoScrolling: false });
-    } else {
-      const { autoScrollSpeed, autoScrollResumeDelay } = this.state;
-      this.pdf?.startAutoScroll(autoScrollSpeed, autoScrollResumeDelay);
-      this.setState({ isAutoScrolling: true });
-    }
-  };
-
-  adjustSpeed = (delta: number): void => {
-    const next = Math.min(120, Math.max(5, this.state.autoScrollSpeed + delta));
-    this.setState({ autoScrollSpeed: next }, () => {
-      if (this.state.isAutoScrolling) {
-        this.pdf?.stopAutoScroll();
-        this.pdf?.startAutoScroll(next, this.state.autoScrollResumeDelay);
-      }
-    });
-  };
-
-  adjustResumeDelay = (delta: number): void => {
-    const next = Math.min(10000, Math.max(500, this.state.autoScrollResumeDelay + delta));
-    this.setState({ autoScrollResumeDelay: next }, () => {
-      if (this.state.isAutoScrolling) {
-        this.pdf?.stopAutoScroll();
-        this.pdf?.startAutoScroll(this.state.autoScrollSpeed, next);
-      }
-    });
-  };
-
-  render(): React.ReactNode {
-    let source: { uri: string; cache?: boolean } =
-      Platform.OS === 'windows'
-        ? { uri: 'ms-appx:///test.pdf' }
-        : { uri: 'https://ontheline.trincoll.edu/images/bookdown/sample-local-pdf.pdf', cache: true };
-    // let source = {uri: this.state.objectURL!};
-
-    const Header = () => (
-        <>
-        <View style={{ flexDirection: 'row' }}>
-            <TouchableHighlight
-                disabled={this.state.page === 1}
-                style={this.state.page === 1 ? styles.btnDisable : styles.btn}
-                onPress={() => this.prePage()}
-            >
-                <Text style={styles.btnText}>{'-'}</Text>
-            </TouchableHighlight>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>Page</Text>
-            </View>
-            <TouchableHighlight
-                disabled={this.state.page === this.state.numberOfPages}
-                style={
-                this.state.page === this.state.numberOfPages
-                    ? styles.btnDisable
-                    : styles.btn
-                }
-                testID="NextPage"
-                onPress={() => this.nextPage()}
-            >
-                <Text style={styles.btnText}>{'+'}</Text>
-            </TouchableHighlight>
-            <TouchableHighlight
-                disabled={this.state.scale === 1}
-                style={this.state.scale === 1 ? styles.btnDisable : styles.btn}
-                onPress={() => this.zoomOut()}
-            >
-                <Text style={styles.btnText}>{'-'}</Text>
-            </TouchableHighlight>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>Scale</Text>
-            </View>
-            <TouchableHighlight
-                disabled={this.state.scale >= 3}
-                style={this.state.scale >= 3 ? styles.btnDisable : styles.btn}
-                onPress={() => this.zoomIn()}
-            >
-                <Text style={styles.btnText}>{'+'}</Text>
-            </TouchableHighlight>
-        </View>
-        <View style={{ flexDirection: 'row' }}>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>{'Horizontal:'}</Text>
-            </View>
-            <TouchableHighlight style={styles.btn} onPress={() => this.switchHorizontal()}>
-                {!this.state.horizontal ? (
-                <Text style={styles.btnText}>{'false'}</Text>
-                ) : (
-                <Text style={styles.btnText}>{'true'}</Text>
-                )}
-            </TouchableHighlight>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>{'Scrollbar'}</Text>
-            </View>
-            <TouchableHighlight
-                style={styles.btn}
-                onPress={() => {
-                this.switchShowsHorizontalScrollIndicator();
-                this.switchShowsVerticalScrollIndicator();
-                }}
-            >
-                {!this.state.showsVerticalScrollIndicator ? (
-                <Text style={styles.btnText}>{'hidden'}</Text>
-                ) : (
-                <Text style={styles.btnText}>{'shown'}</Text>
-                )}
-            </TouchableHighlight>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <TouchableHighlight
-                style={this.state.isAutoScrolling ? styles.btnActive : styles.btn}
-                onPress={() => this.toggleAutoScroll()}
-            >
-                <Text style={styles.btnText}>
-                    {this.state.isAutoScrolling ? 'Auto Scroll: ON' : 'Auto Scroll: OFF'}
-                </Text>
-            </TouchableHighlight>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>Speed:</Text>
-            </View>
-            <TouchableHighlight
-                style={this.state.autoScrollSpeed <= 5 ? styles.btnDisable : styles.btn}
-                disabled={this.state.autoScrollSpeed <= 5}
-                onPress={() => this.adjustSpeed(-5)}
-            >
-                <Text style={styles.btnText}>{'−'}</Text>
-            </TouchableHighlight>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>{`${this.state.autoScrollSpeed} px/s`}</Text>
-            </View>
-            <TouchableHighlight
-                style={this.state.autoScrollSpeed >= 120 ? styles.btnDisable : styles.btn}
-                disabled={this.state.autoScrollSpeed >= 120}
-                onPress={() => this.adjustSpeed(5)}
-            >
-                <Text style={styles.btnText}>{'+'}</Text>
-            </TouchableHighlight>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>Resume delay:</Text>
-            </View>
-            <TouchableHighlight
-                style={this.state.autoScrollResumeDelay <= 500 ? styles.btnDisable : styles.btn}
-                disabled={this.state.autoScrollResumeDelay <= 500}
-                onPress={() => this.adjustResumeDelay(-500)}
-            >
-                <Text style={styles.btnText}>{'−'}</Text>
-            </TouchableHighlight>
-            <View style={styles.btnText}>
-                <Text style={styles.btnText}>{`${this.state.autoScrollResumeDelay} ms`}</Text>
-            </View>
-            <TouchableHighlight
-                style={this.state.autoScrollResumeDelay >= 10000 ? styles.btnDisable : styles.btn}
-                disabled={this.state.autoScrollResumeDelay >= 10000}
-                onPress={() => this.adjustResumeDelay(500)}
-            >
-                <Text style={styles.btnText}>{'+'}</Text>
-            </TouchableHighlight>
-        </View>
-        </>
-    );
-
-    return (
-      <SafeAreaView style={styles.container} edges={{top: 'maximum'}}>
-        <Header />
-        <View style={{ flex: 1, width: this.state.width }}>
-            <Pdf
-                ref={(pdf: any) => {
-                this.pdf = pdf;
-                }}
-                trustAllCerts={false}
-                source={source}
-                scale={this.state.scale}
-                horizontal={this.state.horizontal}
-                showsVerticalScrollIndicator={this.state.showsVerticalScrollIndicator}
-                showsHorizontalScrollIndicator={this.state.showsHorizontalScrollIndicator}
-                onLoadComplete={(
-                numberOfPages: number,
-                filePath: string,
-                dims: { width: number; height: number },
-                tableContents: unknown
-                ) => {
-                this.setState({
-                    numberOfPages: numberOfPages,
-                });
-                console.log(`total page count: ${numberOfPages}`);
-                console.log(tableContents, dims, filePath);
-                }}
-                onPageChanged={(page: number, numberOfPages: number) => {
-                this.setState({
-                    page: page,
-                });
-                console.log(`current page: ${page} / ${numberOfPages}`);
-                }}
-                onError={(error: unknown) => {
-                console.log(error);
-                }}
-                onAutoScrollEnd={() => {
-                this.setState({ isAutoScrolling: false });
-                console.log('Auto scroll reached the end');
-                }}
-                style={{ flex: 1 }}
-            />
-        </View>
-      </SafeAreaView>
-    );
-  }
+// ── Sheet stepper row ─────────────────────────────────────────────────────────
+interface StepperRowProps {
+  label: string;
+  value: string;
+  onDecrement: () => void;
+  onIncrement: () => void;
+  decrementDisabled?: boolean;
+  incrementDisabled?: boolean;
+  accessibilityLabel: string;
+}
+function StepperRow({ label, value, onDecrement, onIncrement, decrementDisabled, incrementDisabled, accessibilityLabel }: StepperRowProps) {
+  return (
+    <View style={styles.sheetRow} accessible accessibilityLabel={accessibilityLabel}>
+      <Text style={styles.sheetRowLabel}>{label}</Text>
+      <View style={styles.stepper}>
+        <Pressable
+          onPress={onDecrement}
+          disabled={decrementDisabled}
+          accessibilityRole="button"
+          accessibilityLabel={`Decrease ${label}`}
+          accessibilityState={{ disabled: decrementDisabled }}
+          hitSlop={6}
+          style={({ pressed }) => [styles.stepBtn, decrementDisabled && styles.stepBtnDisabled, pressed && !decrementDisabled && styles.stepBtnPressed]}
+        >
+          <Text style={[styles.stepBtnText, decrementDisabled && styles.stepBtnTextDisabled]}>−</Text>
+        </Pressable>
+        <Text style={styles.stepValue}>{value}</Text>
+        <Pressable
+          onPress={onIncrement}
+          disabled={incrementDisabled}
+          accessibilityRole="button"
+          accessibilityLabel={`Increase ${label}`}
+          accessibilityState={{ disabled: incrementDisabled }}
+          hitSlop={6}
+          style={({ pressed }) => [styles.stepBtn, incrementDisabled && styles.stepBtnDisabled, pressed && !incrementDisabled && styles.stepBtnPressed]}
+        >
+          <Text style={[styles.stepBtnText, incrementDisabled && styles.stepBtnTextDisabled]}>+</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
+// ── Sheet toggle row ──────────────────────────────────────────────────────────
+interface ToggleRowProps {
+  label: string;
+  value: boolean;
+  onToggle: () => void;
+  trueLabel?: string;
+  falseLabel?: string;
+  activeColor?: string;
+}
+function ToggleRow({ label, value, onToggle, trueLabel = 'On', falseLabel = 'Off', activeColor }: ToggleRowProps) {
+  return (
+    <View style={styles.sheetRow}>
+      <Text style={styles.sheetRowLabel}>{label}</Text>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="switch"
+        accessibilityLabel={label}
+        accessibilityState={{ checked: value }}
+        style={({ pressed }) => [
+          styles.togglePill,
+          value && { backgroundColor: activeColor ?? colors.accentActive },
+          pressed && styles.iconBtnPressed,
+        ]}
+      >
+        <Text style={[styles.togglePillText, value && styles.togglePillTextActive]}>
+          {value ? trueLabel : falseLabel}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ── Sheet segment row (two-option picker) ─────────────────────────────────────
+interface SegmentRowProps {
+  label: string;
+  options: { label: string; value: boolean }[];
+  current: boolean;
+  onSelect: (v: boolean) => void;
+}
+function SegmentRow({ label, options, current, onSelect }: SegmentRowProps) {
+  return (
+    <View style={styles.sheetRow}>
+      <Text style={styles.sheetRowLabel}>{label}</Text>
+      <View style={styles.segment}>
+        {options.map(opt => (
+          <Pressable
+            key={String(opt.value)}
+            onPress={() => onSelect(opt.value)}
+            accessibilityRole="radio"
+            accessibilityLabel={opt.label}
+            accessibilityState={{ selected: current === opt.value }}
+            style={[styles.segmentOption, current === opt.value && styles.segmentOptionSelected]}
+          >
+            <Text style={[styles.segmentOptionText, current === opt.value && styles.segmentOptionTextSelected]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ── Sheet section header ───────────────────────────────────────────────────────
+function SectionHeader({ title }: { title: string }) {
+  return <Text style={styles.sectionHeader}>{title}</Text>;
+}
+
+// ── Hairline ──────────────────────────────────────────────────────────────────
+function Hairline() {
+  return <View style={styles.hairline} />;
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+export default function PDFExample() {
+  const pdfRef = useRef<any>(null);
+
+  const [page, setPage]                 = useState(1);
+  const [scale, setScale]               = useState(1);
+  const [numberOfPages, setNumberOfPages] = useState(0);
+  const [horizontal, setHorizontal]     = useState(false);
+  const [showScrollbars, setShowScrollbars] = useState(true);
+  const [isAutoScrolling, setIsAutoScrolling] = useState(false);
+  const [autoScrollSpeed, setAutoScrollSpeed] = useState(15);
+  const [autoScrollResumeDelay, setAutoScrollResumeDelay] = useState(3000);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const onOrientationChange = useCallback((orientation: OrientationType) => {
+    const isLandscape = orientation === 'LANDSCAPE-LEFT' || orientation === 'LANDSCAPE-RIGHT';
+    setHorizontal(isLandscape);
+  }, []);
+
+  useEffect(() => {
+    Orientation.addOrientationListener(onOrientationChange);
+    return () => Orientation.removeOrientationListener(onOrientationChange);
+  }, [onOrientationChange]);
+
+  const prePage = useCallback(() => {
+    const target = Math.max(1, page - 1);
+    pdfRef.current?.setPage(target);
+  }, [page]);
+
+  const nextPage = useCallback(() => {
+    const target = Math.min(numberOfPages, page + 1);
+    pdfRef.current?.setPage(target);
+  }, [page, numberOfPages]);
+
+  const zoomOut = useCallback(() => {
+    setScale(prev => +(Math.max(1, prev / 1.2)).toFixed(2));
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    setScale(prev => +(Math.min(3, prev * 1.2)).toFixed(2));
+  }, []);
+
+  const toggleAutoScroll = useCallback(() => {
+    if (isAutoScrolling) {
+      pdfRef.current?.stopAutoScroll();
+      setIsAutoScrolling(false);
+    } else {
+      pdfRef.current?.startAutoScroll(autoScrollSpeed, autoScrollResumeDelay);
+      setIsAutoScrolling(true);
+    }
+  }, [isAutoScrolling, autoScrollSpeed, autoScrollResumeDelay]);
+
+  const adjustSpeed = useCallback((delta: number) => {
+    setAutoScrollSpeed(prev => {
+      const next = Math.min(120, Math.max(5, prev + delta));
+      if (isAutoScrolling) {
+        pdfRef.current?.stopAutoScroll();
+        pdfRef.current?.startAutoScroll(next, autoScrollResumeDelay);
+      }
+      return next;
+    });
+  }, [isAutoScrolling, autoScrollResumeDelay]);
+
+  const adjustResumeDelay = useCallback((delta: number) => {
+    setAutoScrollResumeDelay(prev => {
+      const next = Math.min(10000, Math.max(500, prev + delta));
+      if (isAutoScrolling) {
+        pdfRef.current?.stopAutoScroll();
+        pdfRef.current?.startAutoScroll(autoScrollSpeed, next);
+      }
+      return next;
+    });
+  }, [isAutoScrolling, autoScrollSpeed]);
+
+  const source =
+    Platform.OS === 'windows'
+      ? { uri: 'ms-appx:///test.pdf' }
+      : { uri: 'https://ontheline.trincoll.edu/images/bookdown/sample-local-pdf.pdf', cache: true };
+
+  const scaleLabel = `${Math.round(scale * 100)}%`;
+  const pageLabel  = numberOfPages > 0 ? `${page} / ${numberOfPages}` : '— / —';
+
+  return (
+    <SafeAreaView style={styles.container} edges={{ top: 'maximum' }}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.toolbarBg} />
+
+      {/* ── Toolbar: single row ───────────────────────────────────────────── */}
+      <View style={styles.toolbar}>
+        {/* Page navigation */}
+        <View style={styles.controlGroup} accessible accessibilityLabel="Page navigation">
+          <IconBtn
+            label="‹"
+            onPress={prePage}
+            disabled={page <= 1}
+            accessibilityLabel="Previous page"
+            accessibilityHint={page > 1 ? `Go to page ${page - 1}` : undefined}
+          />
+          <Text style={styles.counterText} accessibilityLabel={`Page ${page} of ${numberOfPages}`}>
+            {pageLabel}
+          </Text>
+          <IconBtn
+            label="›"
+            onPress={nextPage}
+            disabled={page >= numberOfPages}
+            testID="NextPage"
+            accessibilityLabel="Next page"
+            accessibilityHint={page < numberOfPages ? `Go to page ${page + 1}` : undefined}
+          />
+        </View>
+
+        <View style={styles.toolbarDivider} />
+
+        {/* Zoom */}
+        <View style={styles.controlGroup} accessible accessibilityLabel="Zoom controls">
+          <IconBtn label="−" onPress={zoomOut} disabled={scale <= 1} accessibilityLabel="Zoom out" />
+          <Text style={styles.counterText} accessibilityLabel={`Zoom ${scaleLabel}`}>
+            {scaleLabel}
+          </Text>
+          <IconBtn label="+" onPress={zoomIn} disabled={scale >= 3} accessibilityLabel="Zoom in" />
+        </View>
+
+        <View style={{ flex: 1 }} />
+
+        {/* Settings gear */}
+        <Pressable
+          onPress={() => setSettingsOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Open settings"
+          accessibilityHint="Layout, scrollbars, auto-scroll"
+          hitSlop={6}
+          style={({ pressed }) => [styles.gearBtn, pressed && styles.iconBtnPressed]}
+        >
+          <Text style={styles.gearText}>⚙</Text>
+          {isAutoScrolling && <View style={styles.gearBadge} />}
+        </Pressable>
+      </View>
+
+      {/* ── PDF viewer ───────────────────────────────────────────────────────── */}
+      <View style={styles.pdfWrapper}>
+        <Pdf
+          ref={pdfRef}
+          trustAllCerts={false}
+          source={source}
+          scale={scale}
+          horizontal={horizontal}
+          showsVerticalScrollIndicator={showScrollbars}
+          showsHorizontalScrollIndicator={showScrollbars}
+          onLoadComplete={(pages: number, filePath: string, dims: { width: number; height: number }, tableContents: unknown) => {
+            setNumberOfPages(pages);
+            console.log(`total pages: ${pages}`, tableContents, dims, filePath);
+          }}
+          onPageChanged={(p: number, total: number) => {
+            setPage(p);
+            console.log(`page: ${p} / ${total}`);
+          }}
+          onError={(error: unknown) => console.log(error)}
+          onAutoScrollEnd={() => {
+            setIsAutoScrolling(false);
+            console.log('Auto scroll ended');
+          }}
+          style={{ flex: 1 }}
+          accessibilityLabel="PDF document viewer"
+        />
+      </View>
+
+      {/* ── Settings bottom sheet ─────────────────────────────────────────────── */}
+      <Modal
+        visible={settingsOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSettingsOpen(false)}
+        accessibilityViewIsModal
+      >
+        {/* Scrim */}
+        <Pressable
+          style={styles.scrim}
+          onPress={() => setSettingsOpen(false)}
+          accessibilityLabel="Close settings"
+          accessibilityRole="button"
+        />
+
+        {/* Sheet */}
+        <View style={styles.sheet}>
+          {/* Handle */}
+          <View style={styles.sheetHandle} accessibilityElementsHidden />
+
+          {/* Sheet header */}
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Settings</Text>
+            <Pressable
+              onPress={() => setSettingsOpen(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close settings"
+              hitSlop={8}
+              style={({ pressed }) => [styles.closeBtn, pressed && styles.iconBtnPressed]}
+            >
+              <Text style={styles.closeBtnText}>✕</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.sheetContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Layout section */}
+            <SectionHeader title="LAYOUT" />
+            <View style={styles.sheetSection}>
+              <SegmentRow
+                label="Scroll direction"
+                options={[{ label: '↕ Vertical', value: false }, { label: '↔ Horizontal', value: true }]}
+                current={horizontal}
+                onSelect={setHorizontal}
+              />
+              <Hairline />
+              <ToggleRow
+                label="Scrollbars"
+                value={showScrollbars}
+                onToggle={() => setShowScrollbars(s => !s)}
+                trueLabel="Visible"
+                falseLabel="Hidden"
+                activeColor={colors.accent}
+              />
+            </View>
+
+            {/* Auto-scroll section */}
+            <SectionHeader title="AUTO SCROLL" />
+            <View style={styles.sheetSection}>
+              <ToggleRow
+                label="Auto scroll"
+                value={isAutoScrolling}
+                onToggle={toggleAutoScroll}
+                trueLabel="On"
+                falseLabel="Off"
+                activeColor={colors.accentActive}
+              />
+              <Hairline />
+              <StepperRow
+                label="Speed"
+                value={`${autoScrollSpeed} px/s`}
+                onDecrement={() => adjustSpeed(-5)}
+                onIncrement={() => adjustSpeed(5)}
+                decrementDisabled={autoScrollSpeed <= 5}
+                incrementDisabled={autoScrollSpeed >= 120}
+                accessibilityLabel={`Scroll speed: ${autoScrollSpeed} pixels per second`}
+              />
+              <Hairline />
+              <StepperRow
+                label="Resume delay"
+                value={`${autoScrollResumeDelay} ms`}
+                onDecrement={() => adjustResumeDelay(-500)}
+                onIncrement={() => adjustResumeDelay(500)}
+                decrementDisabled={autoScrollResumeDelay <= 500}
+                incrementDisabled={autoScrollResumeDelay >= 10000}
+                accessibilityLabel={`Resume delay: ${autoScrollResumeDelay} milliseconds`}
+              />
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.bg,
+  },
+  pdfWrapper: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+
+  // ── Toolbar ────────────────────────────────────────────────────────────────
+  toolbar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    // marginTop: 25,
+    backgroundColor: colors.toolbarBg,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  btn: {
-    margin: 2,
-    padding: 2,
-    backgroundColor: 'aqua',
+  toolbarDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 22,
+    backgroundColor: colors.border,
+    marginHorizontal: 2,
   },
-  btnDisable: {
-    margin: 2,
-    padding: 2,
-    backgroundColor: 'gray',
+  controlGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  btnActive: {
-    margin: 2,
-    padding: 2,
-    backgroundColor: '#90EE90',
+  counterText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '500',
+    minWidth: 52,
+    textAlign: 'center',
   },
-  btnText: {
-    margin: 2,
-    padding: 2,
+
+  // ── Icon buttons (toolbar) ─────────────────────────────────────────────────
+  iconBtn: {
+    minWidth: 44,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBtnDisabled: {
+    backgroundColor: colors.disabledBg,
+  },
+  iconBtnPressed: {
+    opacity: 0.6,
+  },
+  iconBtnText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  iconBtnTextDisabled: {
+    color: colors.disabledText,
+  },
+
+  // ── Gear button ────────────────────────────────────────────────────────────
+  gearBtn: {
+    width: 44,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gearText: {
+    fontSize: 18,
+    color: colors.textSecondary,
+  },
+  gearBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.accentActive,
+  },
+
+  // ── Bottom sheet ───────────────────────────────────────────────────────────
+  scrim: {
+    flex: 1,
+    backgroundColor: colors.scrim,
+  },
+  sheet: {
+    backgroundColor: colors.sheetBg,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 32,
+    maxHeight: '75%',
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    marginTop: 10,
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  closeBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sheetContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+
+  // ── Sheet sections ─────────────────────────────────────────────────────────
+  sectionHeader: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    marginTop: 12,
+    marginBottom: 6,
+    marginLeft: 4,
+  },
+  sheetSection: {
+    backgroundColor: colors.sectionBg,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  sheetRowLabel: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '400',
+    flex: 1,
+  },
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginLeft: 16,
+  },
+
+  // ── Toggle pill ────────────────────────────────────────────────────────────
+  togglePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    minWidth: 64,
+    alignItems: 'center',
+  },
+  togglePillText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  togglePillTextActive: {
+    color: '#000000',
+  },
+
+  // ── Stepper ────────────────────────────────────────────────────────────────
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  stepBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnDisabled: {
+    opacity: 0.35,
+  },
+  stepBtnPressed: {
+    backgroundColor: colors.disabledBg,
+  },
+  stepBtnText: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '400',
+    lineHeight: 22,
+  },
+  stepBtnTextDisabled: {
+    color: colors.disabledText,
+  },
+  stepValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '500',
+    minWidth: 72,
+    textAlign: 'center',
+  },
+
+  // ── Segment control ────────────────────────────────────────────────────────
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  segmentOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentOptionSelected: {
+    backgroundColor: colors.accent,
+  },
+  segmentOptionText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  segmentOptionTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 });
