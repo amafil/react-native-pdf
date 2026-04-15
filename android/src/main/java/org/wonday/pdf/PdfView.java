@@ -50,6 +50,11 @@ import com.facebook.react.uimanager.events.EventDispatcher;
 import com.facebook.react.uimanager.events.Event;
 import com.facebook.react.uimanager.events.RCTEventEmitter;
 
+import io.legere.pdfiumandroid.util.AlreadyClosedBehavior;
+import io.legere.pdfiumandroid.util.Config;
+import io.legere.pdfiumandroid.util.ConfigKt;
+import io.legere.pdfiumandroid.DefaultLogger;
+
 
 import static java.lang.String.format;
 
@@ -104,6 +109,11 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     public PdfView(Context context, AttributeSet set){
         super(context, set);
         autoScrollResumeHandler = new Handler(Looper.getMainLooper());
+
+        // Avoid IllegalStateException("Already closed") when the PDF document is recycled
+        // on the main thread while the background RenderingHandler thread is still rendering.
+        // This race condition causes ANRs reported on Google Play Console.
+        ConfigKt.setPdfiumConfig(new Config(new DefaultLogger(), AlreadyClosedBehavior.IGNORE));
     }
 
     @Override
