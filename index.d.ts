@@ -78,6 +78,7 @@ export interface PdfProps {
     onPageSingleTap?: (page: number, x: number, y: number) => void,
     onScaleChanged?: (scale: number) => void,
     onPressLink?: (url: string) => void,
+    onAutoScrollEnd?: () => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
     onAutoScrollEnd?: () => void,
 }

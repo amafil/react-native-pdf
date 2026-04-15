@@ -63,9 +63,9 @@ export default class Pdf extends Component {
         onPageSingleTap: PropTypes.func,
         onScaleChanged: PropTypes.func,
         onPressLink: PropTypes.func,
+        onAutoScrollEnd: PropTypes.func,
         enableTextSelection: PropTypes.bool,
         onTextSelectionChange: PropTypes.func,
-        onAutoScrollEnd: PropTypes.func,
 
         // Props that are not available in the earlier react native version, added to prevent crashed on android
         accessibilityLabel: PropTypes.string,

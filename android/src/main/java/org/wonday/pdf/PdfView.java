@@ -55,12 +55,6 @@ import com.facebook.react.uimanager.events.EventDispatcher;
 import com.facebook.react.uimanager.events.Event;
 import com.facebook.react.uimanager.events.RCTEventEmitter;
 
-import io.legere.pdfiumandroid.util.AlreadyClosedBehavior;
-import io.legere.pdfiumandroid.util.Config;
-import io.legere.pdfiumandroid.util.ConfigKt;
-import io.legere.pdfiumandroid.DefaultLogger;
-
-
 import static java.lang.String.format;
 
 import java.io.FileNotFoundException;
