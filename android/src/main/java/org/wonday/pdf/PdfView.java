@@ -579,8 +579,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
     // Autoscroll methods
 
-    public void startAutoScroll(float pixels, long resumeDelayMs) {
-        this.autoScrollPixels = pixels; // pixels per second
+    public void startAutoScroll(float dpPerSecond, long resumeDelayMs) {
+        // Convert dp to physical pixels so scroll speed is consistent across screen densities
+        float density = getResources().getDisplayMetrics().density;
+        this.autoScrollPixels = dpPerSecond * density;
         this.autoScrollResumeDelay = resumeDelayMs;
         this.isAutoScrolling = true;
         this.lastFrameTimeNanos = 0;

@@ -79,7 +79,7 @@ const float MIN_SCALE = 1.0f;
     // Autoscroll
     CADisplayLink *_displayLink;
     NSTimer *_autoScrollResumeTimer;
-    CGFloat _autoScrollPixels;        // pixels per second
+    CGFloat _autoScrollPixels;        // points per second (dp maps 1:1 to iOS points)
     NSTimeInterval _autoScrollResumeDelay;
     BOOL _isAutoScrolling;
     BOOL _isUserDragging;
@@ -306,7 +306,7 @@ using namespace facebook::react;
     _changedProps = NULL;
 
     // Autoscroll defaults
-    _autoScrollPixels = 15.0f;   // px/sec
+    _autoScrollPixels = 15.0f;   // dp/sec
     _autoScrollResumeDelay = 3.0;
     _isAutoScrolling = NO;
     _isUserDragging = NO;
@@ -1002,9 +1002,10 @@ using namespace facebook::react;
     return nil;
 }
 
-- (void)startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)resumeDelay
+- (void)startAutoScroll:(CGFloat)dpPerSecond resumeDelay:(NSTimeInterval)resumeDelay
 {
-    _autoScrollPixels = pixels; // pixels per second
+    // dp maps 1:1 to iOS points (both are ~160 dpi logical units)
+    _autoScrollPixels = dpPerSecond;
     _autoScrollResumeDelay = resumeDelay;
     _isAutoScrolling = YES;
 

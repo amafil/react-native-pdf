@@ -87,10 +87,10 @@ export interface PdfRef {
     setPage(pageNumber: number): void
     /**
      * Start smooth automatic vertical scrolling using the display refresh rate.
-     * @param pixels - Scroll speed in pixels per second (default: 15). `interval` is ignored in smooth mode.
+     * @param dpPerSecond - Scroll speed in density-independent pixels (dp) per second (default: 15). Produces consistent physical speed across screen densities.
      * @param resumeDelay - Milliseconds to wait before resuming after user touch (default: 3000)
      */
-    startAutoScroll(pixels?: number, resumeDelay?: number): void
+    startAutoScroll(dpPerSecond?: number, resumeDelay?: number): void
     /** Stop automatic scrolling. */
     stopAutoScroll(): void
 }
