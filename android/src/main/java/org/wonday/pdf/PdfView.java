@@ -635,6 +635,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     }
 
                     moveTo(0, -accumulatedScrollOffset);
+                    loadPages();
                     Choreographer.getInstance().postFrameCallback(this);
                 }
             };
