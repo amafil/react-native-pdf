@@ -55,35 +55,13 @@ RCT_EXPORT_VIEW_PROPERTY(enableTextSelection, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(onTextSelectionChange, RCTBubblingEventBlock);
 
 RCT_EXPORT_METHOD(startAutoScroll:(nonnull NSNumber *)reactTag
-                  pixels:(double)pixels
+                  dpPerSecond:(double)dpPerSecond
                   resumeDelay:(double)resumeDelay)
 {
     [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
         RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
         if ([view isKindOfClass:[RNPDFPdfView class]]) {
-            [view startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
-        }
-    }];
-}
-
-RCT_EXPORT_METHOD(stopAutoScroll:(nonnull NSNumber *)reactTag)
-{
-    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
-        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
-        if ([view isKindOfClass:[RNPDFPdfView class]]) {
-            [view stopAutoScroll];
-        }
-    }];
-}
-
-RCT_EXPORT_METHOD(startAutoScroll:(nonnull NSNumber *)reactTag
-                  pixels:(double)pixels
-                  resumeDelay:(double)resumeDelay)
-{
-    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
-        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
-        if ([view isKindOfClass:[RNPDFPdfView class]]) {
-            [view startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
+            [view startAutoScroll:(CGFloat)dpPerSecond resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
         }
     }];
 }
