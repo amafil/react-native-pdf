@@ -139,6 +139,31 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
         pdfView.setEnableDoubleTapZoom(enableDoubleTap);
     }
 
+    @ReactProp(name = "annotations")
+    public void setAnnotations(PdfView pdfView, @Nullable String annotations) {
+        pdfView.setAnnotations(annotations);
+    }
+
+    @ReactProp(name = "annotationMode")
+    public void setAnnotationMode(PdfView pdfView, boolean annotationMode) {
+        pdfView.setAnnotationMode(annotationMode);
+    }
+
+    @ReactProp(name = "annotationTool")
+    public void setAnnotationTool(PdfView pdfView, @Nullable String annotationTool) {
+        pdfView.setAnnotationTool(annotationTool);
+    }
+
+    @ReactProp(name = "annotationEditable")
+    public void setAnnotationEditable(PdfView pdfView, boolean annotationEditable) {
+        pdfView.setAnnotationEditable(annotationEditable);
+    }
+
+    @ReactProp(name = "annotationIdMode")
+    public void setAnnotationIdMode(PdfView pdfView, @Nullable String annotationIdMode) {
+        pdfView.setAnnotationIdMode(annotationIdMode);
+    }
+
     @ReactProp(name = "enablePaging")
     public void setEnablePaging(PdfView pdfView, boolean enablePaging) {
         pdfView.setEnablePaging(enablePaging);
@@ -184,7 +209,14 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
             startNativeAutoScroll(root, args.getDouble(0), args.getDouble(1));
         } else if ("stopNativeAutoScroll".equals(commandId)) {
             stopNativeAutoScroll(root);
+        } else if ("saveAnnotations".equals(commandId)) {
+            saveAnnotations(root);
         }
+    }
+
+    @Override
+    public void saveAnnotations(PdfView view) {
+        view.saveAnnotations();
     }
 
     @Override

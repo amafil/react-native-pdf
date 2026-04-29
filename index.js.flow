@@ -24,6 +24,68 @@ export type Source = {
   uri: string
 };
 
+export type AnnotationRotation = 0 | 90 | 180 | 270;
+export type AnnotationIdMode = 'auto' | 'manual';
+export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight' | 'underline' | 'strikeout';
+export type AnnotationTextAlign = 'left' | 'center' | 'right';
+
+export type AnnotationPoint = {
+  x: number,
+  y: number,
+  pressure?: number,
+};
+
+export type AnnotationBounds = {
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+};
+
+export type AnnotationStyle = {
+  color?: string,
+  thickness?: number,
+  fontFamily?: string,
+  fontSize?: number,
+  textAlign?: AnnotationTextAlign,
+  rotation?: AnnotationRotation,
+};
+
+export type AnnotationBase = {
+  id: string,
+  page: number,
+  locked?: boolean,
+  createdAt?: number,
+  updatedAt?: number,
+};
+
+export type InkAnnotation = AnnotationBase & {
+  type: 'ink',
+  points: Array<AnnotationPoint>,
+  style?: AnnotationStyle,
+};
+
+export type TextAnnotation = AnnotationBase & {
+  type: 'text',
+  bounds: AnnotationBounds,
+  text: string,
+  style?: AnnotationStyle,
+};
+
+export type MarkupAnnotation = AnnotationBase & {
+  type: 'highlight' | 'underline' | 'strikeout',
+  bounds: AnnotationBounds,
+  style?: AnnotationStyle,
+};
+
+export type Annotation = InkAnnotation | TextAnnotation | MarkupAnnotation;
+
+export type AnnotationDocument = {
+  editable?: boolean,
+  idMode?: AnnotationIdMode,
+  annotations: Array<Annotation>,
+};
+
 export type TableContent = {
   children: TableContent[],
   mNativePtr: number,
@@ -33,6 +95,11 @@ export type TableContent = {
 
 export type Props = {
   renderActivityIndicator?: (progress: number) => Node,
+  annotations?: AnnotationDocument,
+  annotationMode?: boolean,
+  annotationTool?: AnnotationTool,
+  annotationEditable?: boolean,
+  annotationIdMode?: AnnotationIdMode,
   enableAnnotationRendering?: boolean,
   enableAntialiasing?: boolean,
   enablePaging?: boolean,
@@ -64,4 +131,5 @@ export type Props = {
 
 declare export default class Pdf extends Component<Props> {
   setPage: (pageNumber: number) => void;
+  saveAnnotations: () => Promise<AnnotationDocument>;
 }

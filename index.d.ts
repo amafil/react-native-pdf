@@ -27,6 +27,68 @@ export type Source = {
     method?: string;
 };
 
+export type AnnotationRotation = 0 | 90 | 180 | 270;
+export type AnnotationIdMode = 'auto' | 'manual';
+export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight' | 'underline' | 'strikeout';
+export type AnnotationTextAlign = 'left' | 'center' | 'right';
+
+export type AnnotationPoint = {
+    x: number,
+    y: number,
+    pressure?: number,
+};
+
+export type AnnotationBounds = {
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+};
+
+export type AnnotationStyle = {
+    color?: string,
+    thickness?: number,
+    fontFamily?: string,
+    fontSize?: number,
+    textAlign?: AnnotationTextAlign,
+    rotation?: AnnotationRotation,
+};
+
+export type AnnotationBase = {
+    id: string,
+    page: number,
+    locked?: boolean,
+    createdAt?: number,
+    updatedAt?: number,
+};
+
+export type InkAnnotation = AnnotationBase & {
+    type: 'ink',
+    points: AnnotationPoint[],
+    style?: AnnotationStyle,
+};
+
+export type TextAnnotation = AnnotationBase & {
+    type: 'text',
+    bounds: AnnotationBounds,
+    text: string,
+    style?: AnnotationStyle,
+};
+
+export type MarkupAnnotation = AnnotationBase & {
+    type: 'highlight' | 'underline' | 'strikeout',
+    bounds: AnnotationBounds,
+    style?: AnnotationStyle,
+};
+
+export type Annotation = InkAnnotation | TextAnnotation | MarkupAnnotation;
+
+export type AnnotationDocument = {
+    editable?: boolean,
+    idMode?: AnnotationIdMode,
+    annotations: Annotation[],
+};
+
 export type TextSelectionChangeEvent = {
   nativeEvent:
     | {
@@ -58,6 +120,11 @@ export interface PdfProps {
     enableRTL?: boolean,
     enableAnnotationRendering?: boolean,
     enableDoubleTapZoom?: boolean;
+    annotations?: AnnotationDocument,
+    annotationMode?: boolean,
+    annotationTool?: AnnotationTool,
+    annotationEditable?: boolean,
+    annotationIdMode?: AnnotationIdMode,
     /**
      * Only works on iOS. Defaults to `true`.
      */
@@ -80,11 +147,11 @@ export interface PdfProps {
     onPressLink?: (url: string) => void,
     onAutoScrollEnd?: () => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
-    onAutoScrollEnd?: () => void,
 }
 
 export interface PdfRef {
     setPage(pageNumber: number): void
+    saveAnnotations(): Promise<AnnotationDocument>
     /**
      * Start smooth automatic vertical scrolling using the display refresh rate.
      * @param dpPerSecond - Scroll speed in density-independent pixels (dp) per second (default: 15). Produces consistent physical speed across screen densities.

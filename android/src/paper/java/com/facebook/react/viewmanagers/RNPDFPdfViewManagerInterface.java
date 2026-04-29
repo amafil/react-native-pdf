@@ -26,10 +26,16 @@ public interface RNPDFPdfViewManagerInterface<T extends View> {
   void setEnableRTL(T view, boolean value);
   void setEnableAnnotationRendering(T view, boolean value);
   void setEnableDoubleTapZoom(T view, boolean value);
+  void setAnnotations(T view, @Nullable String value);
+  void setAnnotationMode(T view, boolean value);
+  void setAnnotationTool(T view, @Nullable String value);
+  void setAnnotationEditable(T view, boolean value);
+  void setAnnotationIdMode(T view, @Nullable String value);
   void setEnableAntialiasing(T view, boolean value);
   void setFitPolicy(T view, int value);
   void setSpacing(T view, int value);
   void setPassword(T view, @Nullable String value);
   void setSinglePage(T view, boolean value);
   void setNativePage(T view, int page);
+  void saveAnnotations(T view);
 }

@@ -54,6 +54,36 @@
 const float MAX_SCALE = 3.0f;
 const float MIN_SCALE = 1.0f;
 
+@class RNPDFAnnotationOverlay;
+
+@interface RNPDFAnnotationOverlay : UIView <UITextViewDelegate>
+@property(nonatomic, weak) PDFView *pdfView;
+@property(nonatomic, weak) PDFDocument *pdfDocument;
+@property(nonatomic, assign) BOOL annotationMode;
+@property(nonatomic, assign) BOOL annotationEditable;
+@property(nonatomic, copy) NSString *annotationTool;
+@property(nonatomic, copy) NSString *annotationIdMode;
+
+- (void)replaceAnnotationsJSONString:(NSString *)json editable:(BOOL)editable idMode:(NSString *)idMode;
+- (void)setAnnotationMode:(BOOL)annotationMode tool:(NSString *)tool editable:(BOOL)editable idMode:(NSString *)idMode;
+- (void)beginInkAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page;
+- (void)appendInkPointAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page;
+- (void)endInk;
+- (void)beginMarkupAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page type:(NSString *)type;
+- (void)updateMarkupAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page;
+- (void)endMarkup;
+- (void)createTextAnnotationAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page;
+- (NSDictionary *)annotationSelectionHitAtPoint:(CGPoint)point includeHandles:(BOOL)includeHandles;
+- (void)selectAnnotation:(NSDictionary *)annotation;
+- (void)clearSelection;
+- (void)deleteAnnotation:(NSDictionary *)annotation;
+- (void)beginSelectionInteractionAtPoint:(CGPoint)point hit:(NSDictionary *)hit;
+- (void)updateSelectionInteractionAtPoint:(CGPoint)point;
+- (void)endSelectionInteraction;
+- (void)commitTextEditingIfNeeded;
+- (NSString *)serializedDocumentJSONStringWithEditable:(BOOL)editable idMode:(NSString *)idMode;
+@end
+
 @interface RNPDFPdfView() <PDFDocumentDelegate, PDFViewDelegate
 #ifdef RCT_NEW_ARCH_ENABLED
 , RCTRNPDFPdfViewViewProtocol
@@ -75,6 +105,8 @@ const float MIN_SCALE = 1.0f;
     UIPinchGestureRecognizer *_pinchRecognizer;
     UILongPressGestureRecognizer *_longPressRecognizer;
     UITapGestureRecognizer *_doubleTapEmptyRecognizer;
+    UIPanGestureRecognizer *_annotationPanRecognizer;
+    RNPDFAnnotationOverlay *_annotationOverlay;
 
     // Autoscroll
     CADisplayLink *_displayLink;
@@ -157,6 +189,26 @@ using namespace facebook::react;
         _enableDoubleTapZoom = newProps.enableDoubleTapZoom;
         [updatedPropNames addObject:@"enableDoubleTapZoom"];
     }
+    if (_annotations != RCTNSStringFromStringNilIfEmpty(newProps.annotations)) {
+        _annotations = RCTNSStringFromStringNilIfEmpty(newProps.annotations);
+        [updatedPropNames addObject:@"annotations"];
+    }
+    if (_annotationMode != newProps.annotationMode) {
+        _annotationMode = newProps.annotationMode;
+        [updatedPropNames addObject:@"annotationMode"];
+    }
+    if (_annotationTool != RCTNSStringFromStringNilIfEmpty(newProps.annotationTool)) {
+        _annotationTool = RCTNSStringFromStringNilIfEmpty(newProps.annotationTool);
+        [updatedPropNames addObject:@"annotationTool"];
+    }
+    if (_annotationEditable != newProps.annotationEditable) {
+        _annotationEditable = newProps.annotationEditable;
+        [updatedPropNames addObject:@"annotationEditable"];
+    }
+    if (_annotationIdMode != RCTNSStringFromStringNilIfEmpty(newProps.annotationIdMode)) {
+        _annotationIdMode = RCTNSStringFromStringNilIfEmpty(newProps.annotationIdMode);
+        [updatedPropNames addObject:@"annotationIdMode"];
+    }
     if (_fitPolicy != newProps.fitPolicy) {
         _fitPolicy = newProps.fitPolicy;
         [updatedPropNames addObject:@"fitPolicy"];
@@ -189,6 +241,13 @@ using namespace facebook::react;
 
     [super updateProps:props oldProps:oldProps];
     [self didSetProps:updatedPropNames];
+
+    if (_annotationOverlay) {
+        [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
+        [_annotationOverlay setAnnotationMode:_annotationMode tool:_annotationTool editable:_annotationEditable idMode:_annotationIdMode];
+        _annotationOverlay.pdfView = _pdfView;
+        _annotationOverlay.pdfDocument = _pdfDocument;
+    }
 }
 
 // already added in case https://github.com/facebook/react-native/pull/35378 has been merged
@@ -219,6 +278,10 @@ using namespace facebook::react;
     [self removeGestureRecognizer:_pinchRecognizer];
     [self removeGestureRecognizer:_longPressRecognizer];
     [self removeGestureRecognizer:_doubleTapEmptyRecognizer];
+    [self removeGestureRecognizer:_annotationPanRecognizer];
+
+    [_annotationOverlay removeFromSuperview];
+    _annotationOverlay = nil;
 
     [self initCommonProps];
 }
@@ -228,6 +291,7 @@ using namespace facebook::react;
     // Fabric equivalent of `reactSetFrame` method
     [super updateLayoutMetrics:layoutMetrics oldLayoutMetrics:oldLayoutMetrics];
     _pdfView.frame = CGRectMake(0, 0, layoutMetrics.frame.size.width, layoutMetrics.frame.size.height);
+    _annotationOverlay.frame = CGRectMake(0, 0, layoutMetrics.frame.size.width, layoutMetrics.frame.size.height);
 
     NSMutableArray *mProps = [_changedProps mutableCopy];
     if (_initialed) {
@@ -315,6 +379,12 @@ using namespace facebook::react;
     _autoScrollCurrentOffset = 0.0;
 
     [self addSubview:_pdfView];
+    _annotationOverlay = [[RNPDFAnnotationOverlay alloc] initWithFrame:self.bounds];
+    _annotationOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _annotationOverlay.backgroundColor = UIColor.clearColor;
+    _annotationOverlay.userInteractionEnabled = YES;
+    [self addSubview:_annotationOverlay];
+    [self bringSubviewToFront:_annotationOverlay];
 
 
     // register notification
@@ -425,6 +495,10 @@ using namespace facebook::react;
                 }
 
                 _pdfView.document = _pdfDocument;
+                if (_annotationOverlay) {
+                    _annotationOverlay.pdfView = _pdfView;
+                    _annotationOverlay.pdfDocument = _pdfDocument;
+                }
             } else {
 
                 [self notifyOnChangeWithMessage:[[NSString alloc] initWithString:[NSString stringWithFormat:@"error|Load pdf failed. path=%s",_path.UTF8String]]];
@@ -766,6 +840,8 @@ using namespace facebook::react;
         [self notifyOnChangeWithMessage:[[NSString alloc] initWithString:[NSString stringWithFormat:@"pageChanged|%lu|%lu", page+1, numberOfPages]]];
     }
 
+    [_annotationOverlay refreshDisplay];
+
 }
 
 - (void)onScaleChanged:(NSNotification *)noti
@@ -777,6 +853,8 @@ using namespace facebook::react;
             [self notifyOnChangeWithMessage:[[NSString alloc] initWithString:[NSString stringWithFormat:@"scaleChanged|%f", _scale]]];
         }
     }
+
+    [_annotationOverlay refreshDisplay];
 }
 
 #pragma mark gesture process
@@ -875,6 +953,35 @@ using namespace facebook::react;
     PDFPage *pdfPage = [_pdfView pageForPoint:point nearest:NO];
     if (pdfPage) {
         unsigned long page = [_pdfDocument indexForPage:pdfPage];
+        if (_annotationMode && _annotationEditable) {
+            if ([_annotationTool isEqualToString:@"select"]) {
+                [_annotationOverlay commitTextEditingIfNeeded];
+
+                NSDictionary *hit = [_annotationOverlay annotationSelectionHitAtPoint:point includeHandles:YES];
+                if (hit) {
+                    NSDictionary *annotation = hit[@"annotation"];
+                    NSString *hitPart = hit[@"hitPart"];
+                    if ([hitPart isEqualToString:@"delete"]) {
+                        [_annotationOverlay deleteAnnotation:annotation];
+                    } else {
+                        [_annotationOverlay selectAnnotation:annotation];
+                    }
+
+                    return;
+                }
+
+                [_annotationOverlay clearSelection];
+                [self notifyOnChangeWithMessage:
+                 [[NSString alloc] initWithString:[NSString stringWithFormat:@"pageSingleTap|%lu|%f|%f", page+1, point.x, point.y]]];
+                return;
+            }
+
+            if ([_annotationTool isEqualToString:@"text"]) {
+                [_annotationOverlay createTextAnnotationAtViewPoint:point page:pdfPage];
+                return;
+            }
+        }
+
         [self notifyOnChangeWithMessage:
          [[NSString alloc] initWithString:[NSString stringWithFormat:@"pageSingleTap|%lu|%f|%f", page+1, point.x, point.y]]];
     }
@@ -902,6 +1009,77 @@ using namespace facebook::react;
  */
 - (void)handleLongPress:(UILongPressGestureRecognizer *)sender{
 
+}
+
+- (void)handleAnnotationPan:(UIPanGestureRecognizer *)sender
+{
+    if (!_annotationMode || !_annotationEditable || _annotationTool == nil) {
+        return;
+    }
+
+    CGPoint point = [sender locationInView:self];
+    PDFPage *pdfPage = [_pdfDocument pageAtIndex:MAX(0, [_pdfDocument indexForPage:[_pdfView pageForPoint:point nearest:NO]])];
+    if (!pdfPage) {
+        return;
+    }
+
+    if ([_annotationTool isEqualToString:@"select"]) {
+        if (sender.state == UIGestureRecognizerStateBegan) {
+            [_annotationOverlay commitTextEditingIfNeeded];
+
+            NSDictionary *hit = [_annotationOverlay annotationSelectionHitAtPoint:point includeHandles:YES];
+            if (!hit) {
+                return;
+            }
+
+            NSDictionary *annotation = hit[@"annotation"];
+            NSString *hitPart = hit[@"hitPart"];
+            if ([hitPart isEqualToString:@"delete"]) {
+                [_annotationOverlay deleteAnnotation:annotation];
+                return;
+            }
+
+            [_annotationOverlay selectAnnotation:annotation];
+            [_annotationOverlay beginSelectionInteractionAtPoint:point hit:hit];
+        } else if (sender.state == UIGestureRecognizerStateChanged) {
+            [_annotationOverlay updateSelectionInteractionAtPoint:point];
+        } else if (sender.state == UIGestureRecognizerStateEnded || sender.state == UIGestureRecognizerStateCancelled || sender.state == UIGestureRecognizerStateFailed) {
+            [_annotationOverlay endSelectionInteraction];
+        }
+        return;
+    }
+
+    if (sender.state == UIGestureRecognizerStateBegan) {
+        if ([_annotationTool isEqualToString:@"ink"]) {
+            [_annotationOverlay beginInkAtViewPoint:point page:pdfPage];
+        } else if ([@[@"highlight", @"underline", @"strikeout"] containsObject:_annotationTool]) {
+            [_annotationOverlay beginMarkupAtViewPoint:point page:pdfPage type:_annotationTool];
+        }
+    } else if (sender.state == UIGestureRecognizerStateChanged) {
+        if ([_annotationTool isEqualToString:@"ink"]) {
+            [_annotationOverlay appendInkPointAtViewPoint:point page:pdfPage];
+        } else if ([@[@"highlight", @"underline", @"strikeout"] containsObject:_annotationTool]) {
+            [_annotationOverlay updateMarkupAtViewPoint:point page:pdfPage];
+        }
+    } else if (sender.state == UIGestureRecognizerStateEnded || sender.state == UIGestureRecognizerStateCancelled || sender.state == UIGestureRecognizerStateFailed) {
+        if ([_annotationTool isEqualToString:@"ink"]) {
+            [_annotationOverlay endInk];
+        } else if ([@[@"highlight", @"underline", @"strikeout"] containsObject:_annotationTool]) {
+            [_annotationOverlay endMarkup];
+        }
+    }
+}
+
+- (void)saveAnnotations
+{
+    if (_annotationOverlay) {
+        [_annotationOverlay commitTextEditingIfNeeded];
+        NSString *jsonString = [_annotationOverlay serializedDocumentJSONStringWithEditable:_annotationEditable idMode:_annotationIdMode];
+        [self notifyOnChangeWithMessage:[NSString stringWithFormat:@"annotationSaveComplete|%@", jsonString]];
+        return;
+    }
+
+    [self notifyOnChangeWithMessage:@"annotationSaveError|Annotation overlay unavailable"];
 }
 
 /**
@@ -950,6 +1128,15 @@ using namespace facebook::react;
     [self addGestureRecognizer:longPressRecognizer];
     _longPressRecognizer = longPressRecognizer;
 
+    UIPanGestureRecognizer *annotationPanRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                                              action:@selector(handleAnnotationPan:)];
+    annotationPanRecognizer.maximumNumberOfTouches = 1;
+    annotationPanRecognizer.minimumNumberOfTouches = 1;
+    annotationPanRecognizer.delegate = self;
+    annotationPanRecognizer.cancelsTouchesInView = YES;
+    [self addGestureRecognizer:annotationPanRecognizer];
+    _annotationPanRecognizer = annotationPanRecognizer;
+
     // Override the _pdfView double tap gesture recognizer so that it doesn't confilict with custom double tap
     UITapGestureRecognizer *doubleTapEmptyRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self
                                                                                           action:@selector(handleDoubleTapEmpty:)];
@@ -961,11 +1148,28 @@ using namespace facebook::react;
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer
 
 {
+    if (gestureRecognizer == _annotationPanRecognizer) {
+        if (!_annotationMode || !_annotationEditable || _annotationTool == nil) {
+            return NO;
+        }
+
+        if ([_annotationTool isEqualToString:@"select"]) {
+            CGPoint point = [gestureRecognizer locationInView:self];
+            return [_annotationOverlay annotationSelectionHitAtPoint:point includeHandles:YES] != nil;
+        }
+
+        return [@[@"ink", @"highlight", @"underline", @"strikeout"] containsObject:_annotationTool];
+    }
+
     return !_singlePage;
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer
 {
+    if (gestureRecognizer == _annotationPanRecognizer || otherGestureRecognizer == _annotationPanRecognizer) {
+        return NO;
+    }
+
     return !_singlePage;
 }
 
@@ -1136,6 +1340,998 @@ using namespace facebook::react;
 {
     if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidScroll:)]) {
         [_originalScrollDelegate scrollViewDidScroll:scrollView];
+    }
+
+    [_annotationOverlay refreshDisplay];
+}
+
+@end
+
+static UIColor *RNPDFColorFromHexString(NSString *hexString, UIColor *fallback)
+{
+    if (![hexString isKindOfClass:[NSString class]] || hexString.length == 0) {
+        return fallback;
+    }
+
+    NSString *cleanHex = [[hexString stringByReplacingOccurrencesOfString:@"#" withString:@""] uppercaseString];
+    unsigned int rgbValue = 0;
+    if (cleanHex.length == 6) {
+        NSScanner *scanner = [NSScanner scannerWithString:cleanHex];
+        [scanner scanHexInt:&rgbValue];
+        return [UIColor colorWithRed:((rgbValue & 0xFF0000) >> 16) / 255.0f
+                               green:((rgbValue & 0x00FF00) >> 8) / 255.0f
+                                blue:(rgbValue & 0x0000FF) / 255.0f
+                               alpha:1.0f];
+    }
+
+    if (cleanHex.length == 8) {
+        NSScanner *scanner = [NSScanner scannerWithString:cleanHex];
+        [scanner scanHexInt:&rgbValue];
+        return [UIColor colorWithRed:((rgbValue & 0x00FF0000) >> 16) / 255.0f
+                               green:((rgbValue & 0x0000FF00) >> 8) / 255.0f
+                                blue:(rgbValue & 0x000000FF) / 255.0f
+                               alpha:((rgbValue & 0xFF000000) >> 24) / 255.0f];
+    }
+
+    return fallback;
+}
+
+static NSString *RNPDFGenerateAnnotationId(void)
+{
+    return [[NSUUID UUID] UUIDString];
+}
+
+@implementation RNPDFAnnotationOverlay
+{
+    NSMutableArray<NSMutableDictionary *> *_draftAnnotations;
+    NSMutableDictionary *_activeInkAnnotation;
+    NSMutableDictionary *_activeMarkupAnnotation;
+    NSMutableDictionary *_activeTextAnnotation;
+    NSString *_selectedAnnotationId;
+    NSMutableDictionary *_activeSelectionAnnotation;
+    NSString *_activeSelectionMode;
+    NSString *_activeSelectionHandle;
+    CGPoint _selectionStartPoint;
+    CGRect _selectionStartBounds;
+    NSArray *_selectionStartPoints;
+    NSInteger _selectionPageIndex;
+    CGPoint _activeMarkupStartNormalized;
+    UITextView *_activeTextView;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    if (self = [super initWithFrame:frame]) {
+        _draftAnnotations = [NSMutableArray new];
+        _annotationMode = NO;
+        _annotationEditable = YES;
+        _annotationTool = @"select";
+        _annotationIdMode = @"auto";
+        self.backgroundColor = UIColor.clearColor;
+        self.opaque = NO;
+    }
+    return self;
+}
+
+- (void)setPdfView:(PDFView *)pdfView
+{
+    _pdfView = pdfView;
+    [self refreshDisplay];
+}
+
+- (void)setPdfDocument:(PDFDocument *)pdfDocument
+{
+    _pdfDocument = pdfDocument;
+    [self refreshDisplay];
+}
+
+- (void)replaceAnnotationsJSONString:(NSString *)json editable:(BOOL)editable idMode:(NSString *)idMode
+{
+    self.annotationEditable = editable;
+    self.annotationIdMode = idMode ?: @"auto";
+
+    NSArray *parsedAnnotations = [self parseAnnotationsFromJSONString:json];
+    _draftAnnotations = [parsedAnnotations mutableCopy] ?: [NSMutableArray new];
+
+    [self commitTextEditingIfNeeded];
+    [self refreshDisplay];
+}
+
+- (void)setAnnotationMode:(BOOL)annotationMode tool:(NSString *)tool editable:(BOOL)editable idMode:(NSString *)idMode
+{
+    _annotationMode = annotationMode;
+    _annotationEditable = editable;
+    _annotationTool = tool ?: @"select";
+    _annotationIdMode = idMode ?: @"auto";
+
+    if (!annotationMode) {
+        [self commitTextEditingIfNeeded];
+    }
+}
+
+- (NSArray *)parseAnnotationsFromJSONString:(NSString *)json
+{
+    if (![json isKindOfClass:[NSString class]] || json.length == 0) {
+        return @[];
+    }
+
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) {
+        return @[];
+    }
+
+    NSError *error = nil;
+    id parsed = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:&error];
+    if (error || !parsed) {
+        return @[];
+    }
+
+    NSArray *items = nil;
+    if ([parsed isKindOfClass:[NSDictionary class]]) {
+        id candidate = parsed[@"annotations"];
+        if ([candidate isKindOfClass:[NSArray class]]) {
+            items = candidate;
+        }
+    } else if ([parsed isKindOfClass:[NSArray class]]) {
+        items = parsed;
+    }
+
+    if (![items isKindOfClass:[NSArray class]]) {
+        return @[];
+    }
+
+    NSMutableArray *normalized = [NSMutableArray arrayWithCapacity:items.count];
+    for (id item in items) {
+        if (![item isKindOfClass:[NSDictionary class]]) {
+            continue;
+        }
+
+        NSMutableDictionary *annotation = [item mutableCopy];
+        if (!annotation[@"id"]) {
+            annotation[@"id"] = RNPDFGenerateAnnotationId();
+        }
+        if (!annotation[@"page"]) {
+            annotation[@"page"] = @(1);
+        }
+        [normalized addObject:annotation];
+    }
+
+    return normalized;
+}
+
+- (NSString *)serializedDocumentJSONStringWithEditable:(BOOL)editable idMode:(NSString *)idMode
+{
+    NSMutableDictionary *document = [NSMutableDictionary dictionary];
+    document[@"editable"] = @(editable);
+    document[@"idMode"] = idMode ?: @"auto";
+    document[@"annotations"] = [_draftAnnotations copy] ?: @[];
+
+    NSError *error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:document options:0 error:&error];
+    if (error || !data) {
+        return @"{}";
+    }
+
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"{}";
+}
+
+- (void)refreshDisplay
+{
+    [self setNeedsDisplay];
+    [self updateActiveTextEditorFrame];
+}
+
+- (BOOL)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+{
+    if (_activeTextView) {
+        if (CGRectContainsPoint(_activeTextView.frame, point)) {
+            return _activeTextView;
+        }
+
+        return self;
+    }
+
+    return nil;
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+    if (_activeTextView) {
+        [self commitTextEditingIfNeeded];
+    }
+
+    [super touchesBegan:touches withEvent:event];
+}
+
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    [self updateActiveTextEditorFrame];
+}
+
+- (CGPoint)normalizedPointForViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
+{
+    if (!self.pdfView || !page) {
+        return CGPointZero;
+    }
+
+    CGPoint pagePoint = [self.pdfView convertPoint:viewPoint toPage:page];
+    CGRect pageBounds = [page boundsForBox:kPDFDisplayBoxCropBox];
+    if (page.rotation == 90 || page.rotation == 270) {
+        pageBounds = CGRectMake(0, 0, pageBounds.size.height, pageBounds.size.width);
+    }
+
+    CGFloat width = MAX(pageBounds.size.width, 1.0f);
+    CGFloat height = MAX(pageBounds.size.height, 1.0f);
+    return CGPointMake(pagePoint.x / width, 1.0f - (pagePoint.y / height));
+}
+
+- (CGPoint)viewPointForNormalizedPoint:(CGPoint)normalizedPoint page:(PDFPage *)page
+{
+    if (!self.pdfView || !page) {
+        return CGPointZero;
+    }
+
+    CGRect pageBounds = [page boundsForBox:kPDFDisplayBoxCropBox];
+    if (page.rotation == 90 || page.rotation == 270) {
+        pageBounds = CGRectMake(0, 0, pageBounds.size.height, pageBounds.size.width);
+    }
+
+    CGFloat width = MAX(pageBounds.size.width, 1.0f);
+    CGFloat height = MAX(pageBounds.size.height, 1.0f);
+    CGPoint pagePoint = CGPointMake(normalizedPoint.x * width, (1.0f - normalizedPoint.y) * height);
+    return [self.pdfView convertPoint:pagePoint fromPage:page];
+}
+
+- (CGRect)viewRectForNormalizedBounds:(NSDictionary *)bounds page:(PDFPage *)page
+{
+    if (!bounds || !page) {
+        return CGRectZero;
+    }
+
+    CGFloat x = [bounds[@"x"] doubleValue];
+    CGFloat y = [bounds[@"y"] doubleValue];
+    CGFloat width = [bounds[@"width"] doubleValue];
+    CGFloat height = [bounds[@"height"] doubleValue];
+
+    CGPoint topLeft = [self viewPointForNormalizedPoint:CGPointMake(x, y) page:page];
+    CGPoint topRight = [self viewPointForNormalizedPoint:CGPointMake(x + width, y) page:page];
+    CGPoint bottomLeft = [self viewPointForNormalizedPoint:CGPointMake(x, y + height) page:page];
+    CGPoint bottomRight = [self viewPointForNormalizedPoint:CGPointMake(x + width, y + height) page:page];
+
+    CGFloat minX = MIN(MIN(topLeft.x, topRight.x), MIN(bottomLeft.x, bottomRight.x));
+    CGFloat maxX = MAX(MAX(topLeft.x, topRight.x), MAX(bottomLeft.x, bottomRight.x));
+    CGFloat minY = MIN(MIN(topLeft.y, topRight.y), MIN(bottomLeft.y, bottomRight.y));
+    CGFloat maxY = MAX(MAX(topLeft.y, topRight.y), MAX(bottomLeft.y, bottomRight.y));
+
+    return CGRectMake(minX, minY, MAX(maxX - minX, 1.0f), MAX(maxY - minY, 1.0f));
+}
+
+- (CGRect)viewRectForAnnotation:(NSDictionary *)annotation page:(PDFPage *)page
+{
+    if (!annotation || !page) {
+        return CGRectZero;
+    }
+
+    NSString *type = annotation[@"type"];
+    if ([type isEqualToString:@"ink"]) {
+        NSArray *points = annotation[@"points"];
+        if (![points isKindOfClass:[NSArray class]] || points.count == 0) {
+            return CGRectZero;
+        }
+
+        CGFloat minX = CGFLOAT_MAX;
+        CGFloat minY = CGFLOAT_MAX;
+        CGFloat maxX = -CGFLOAT_MAX;
+        CGFloat maxY = -CGFLOAT_MAX;
+
+        for (NSDictionary *point in points) {
+            if (![point isKindOfClass:[NSDictionary class]]) {
+                continue;
+            }
+
+            CGPoint viewPoint = [self viewPointForNormalizedPoint:CGPointMake([point[@"x"] doubleValue], [point[@"y"] doubleValue]) page:page];
+            minX = MIN(minX, viewPoint.x);
+            minY = MIN(minY, viewPoint.y);
+            maxX = MAX(maxX, viewPoint.x);
+            maxY = MAX(maxY, viewPoint.y);
+        }
+
+        if (minX == CGFLOAT_MAX || minY == CGFLOAT_MAX || maxX == -CGFLOAT_MAX || maxY == -CGFLOAT_MAX) {
+            return CGRectZero;
+        }
+
+        return CGRectMake(minX, minY, MAX(maxX - minX, 1.0f), MAX(maxY - minY, 1.0f));
+    }
+
+    NSDictionary *bounds = annotation[@"bounds"];
+    return [self viewRectForNormalizedBounds:bounds page:page];
+}
+
+- (CGRect)normalizedBoundsForAnnotation:(NSDictionary *)annotation
+{
+    if (!annotation) {
+        return CGRectZero;
+    }
+
+    NSString *type = annotation[@"type"];
+    if ([type isEqualToString:@"ink"]) {
+        NSArray *points = annotation[@"points"];
+        if (![points isKindOfClass:[NSArray class]] || points.count == 0) {
+            return CGRectZero;
+        }
+
+        CGFloat minX = CGFLOAT_MAX;
+        CGFloat minY = CGFLOAT_MAX;
+        CGFloat maxX = -CGFLOAT_MAX;
+        CGFloat maxY = -CGFLOAT_MAX;
+
+        for (NSDictionary *point in points) {
+            if (![point isKindOfClass:[NSDictionary class]]) {
+                continue;
+            }
+
+            CGFloat x = [point[@"x"] doubleValue];
+            CGFloat y = [point[@"y"] doubleValue];
+            minX = MIN(minX, x);
+            minY = MIN(minY, y);
+            maxX = MAX(maxX, x);
+            maxY = MAX(maxY, y);
+        }
+
+        if (minX == CGFLOAT_MAX || minY == CGFLOAT_MAX || maxX == -CGFLOAT_MAX || maxY == -CGFLOAT_MAX) {
+            return CGRectZero;
+        }
+
+        return CGRectMake(minX, minY, MAX(maxX - minX, 0.001f), MAX(maxY - minY, 0.001f));
+    }
+
+    NSDictionary *bounds = annotation[@"bounds"];
+    if (![bounds isKindOfClass:[NSDictionary class]]) {
+        return CGRectZero;
+    }
+
+    CGFloat x = [bounds[@"x"] doubleValue];
+    CGFloat y = [bounds[@"y"] doubleValue];
+    CGFloat width = [bounds[@"width"] doubleValue];
+    CGFloat height = [bounds[@"height"] doubleValue];
+    return CGRectMake(x, y, MAX(width, 0.001f), MAX(height, 0.001f));
+}
+
+- (NSArray *)copyPointsForAnnotation:(NSDictionary *)annotation
+{
+    if (![annotation[@"type"] isEqualToString:@"ink"]) {
+        return nil;
+    }
+
+    NSArray *points = annotation[@"points"];
+    if (![points isKindOfClass:[NSArray class]]) {
+        return nil;
+    }
+
+    return [points copy];
+}
+
+- (NSDictionary *)selectedAnnotation
+{
+    if (_selectedAnnotationId.length == 0) {
+        return nil;
+    }
+
+    for (NSDictionary *annotation in [_draftAnnotations reverseObjectEnumerator]) {
+        if ([_selectedAnnotationId isEqualToString:annotation[@"id"]]) {
+            return annotation;
+        }
+    }
+
+    return nil;
+}
+
+- (CGRect)deleteHandleRectForRect:(CGRect)rect
+{
+    CGFloat size = MAX(16.0f, MIN(rect.size.width, rect.size.height) * 0.18f);
+    return CGRectMake(CGRectGetMaxX(rect) - size, CGRectGetMinY(rect) - size, size, size);
+}
+
+- (CGRect)resizeHandleRectForRect:(CGRect)rect
+{
+    CGFloat size = MAX(16.0f, MIN(rect.size.width, rect.size.height) * 0.18f);
+    return CGRectMake(CGRectGetMaxX(rect) - size, CGRectGetMaxY(rect) - size, size, size);
+}
+
+- (NSDictionary *)annotationSelectionHitAtPoint:(CGPoint)point includeHandles:(BOOL)includeHandles
+{
+    if (!self.pdfDocument || _draftAnnotations.count == 0) {
+        return nil;
+    }
+
+    PDFPage *page = [self.pdfView pageForPoint:point nearest:NO];
+    if (!page) {
+        return nil;
+    }
+
+    NSInteger pageIndex = [self.pdfDocument indexForPage:page];
+    for (NSDictionary *annotation in [_draftAnnotations reverseObjectEnumerator]) {
+        NSNumber *annotationPageNumber = annotation[@"page"];
+        if (!annotationPageNumber || annotationPageNumber.integerValue - 1 != pageIndex) {
+            continue;
+        }
+
+        CGRect rect = [self viewRectForAnnotation:annotation page:page];
+        if (CGRectIsEmpty(rect)) {
+            continue;
+        }
+
+        CGRect hitRect = CGRectInset(rect, -12.0f, -12.0f);
+        if (!CGRectContainsPoint(hitRect, point)) {
+            continue;
+        }
+
+        NSString *hitPart = @"body";
+        if (includeHandles && [_selectedAnnotationId isEqualToString:annotation[@"id"]]) {
+            if (CGRectContainsPoint([self deleteHandleRectForRect:rect], point)) {
+                hitPart = @"delete";
+            } else if (CGRectContainsPoint([self resizeHandleRectForRect:rect], point)) {
+                hitPart = @"resize";
+            }
+        }
+
+        return @{@"annotation": annotation,
+                 @"pageIndex": @(pageIndex),
+                 @"hitPart": hitPart,
+                 @"rect": [NSValue valueWithCGRect:rect]};
+    }
+
+    return nil;
+}
+
+- (void)selectAnnotation:(NSDictionary *)annotation
+{
+    _selectedAnnotationId = [annotation[@"id"] copy];
+    [self refreshDisplay];
+}
+
+- (void)clearSelection
+{
+    _selectedAnnotationId = nil;
+    [self refreshDisplay];
+}
+
+- (void)deleteAnnotation:(NSDictionary *)annotation
+{
+    if (!annotation) {
+        return;
+    }
+
+    [self commitTextEditingIfNeeded];
+
+    NSString *annotationId = annotation[@"id"];
+    if (annotationId.length == 0) {
+        return;
+    }
+
+    NSUInteger removeIndex = NSNotFound;
+    for (NSUInteger index = 0; index < _draftAnnotations.count; index++) {
+        NSDictionary *candidate = _draftAnnotations[index];
+        if ([annotationId isEqualToString:candidate[@"id"]]) {
+            removeIndex = index;
+            break;
+        }
+    }
+
+    if (removeIndex != NSNotFound) {
+        [_draftAnnotations removeObjectAtIndex:removeIndex];
+    }
+
+    if ([_selectedAnnotationId isEqualToString:annotationId]) {
+        _selectedAnnotationId = nil;
+    }
+
+    [self endSelectionInteraction];
+
+    [self refreshDisplay];
+}
+
+- (void)beginSelectionInteractionAtPoint:(CGPoint)point hit:(NSDictionary *)hit
+{
+    NSDictionary *annotation = hit[@"annotation"];
+    if (![annotation isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+
+    _activeSelectionAnnotation = (NSMutableDictionary *)annotation;
+    _activeSelectionMode = [hit[@"hitPart"] isEqualToString:@"resize"] ? @"resize" : @"move";
+    _activeSelectionHandle = hit[@"hitPart"] ?: @"body";
+    _selectionStartPoint = point;
+    _selectionPageIndex = [hit[@"pageIndex"] integerValue];
+    _selectionStartBounds = [self normalizedBoundsForAnnotation:annotation];
+    _selectionStartPoints = [self copyPointsForAnnotation:annotation];
+}
+
+- (void)updateSelectionInteractionAtPoint:(CGPoint)point
+{
+    if (!_activeSelectionAnnotation || _selectionPageIndex < 0 || !_pdfDocument || _selectionPageIndex >= _pdfDocument.pageCount) {
+        return;
+    }
+
+    PDFPage *page = [_pdfDocument pageAtIndex:_selectionPageIndex];
+    if (!page) {
+        return;
+    }
+
+    CGPoint startNormalized = [self normalizedPointForViewPoint:_selectionStartPoint page:page];
+    CGPoint currentNormalized = [self normalizedPointForViewPoint:point page:page];
+    CGFloat deltaX = currentNormalized.x - startNormalized.x;
+    CGFloat deltaY = currentNormalized.y - startNormalized.y;
+
+    CGRect newBounds = _selectionStartBounds;
+    if ([_activeSelectionMode isEqualToString:@"resize"]) {
+        newBounds.size.width = MAX(0.01f, _selectionStartBounds.size.width + deltaX);
+        newBounds.size.height = MAX(0.01f, _selectionStartBounds.size.height + deltaY);
+    } else {
+        newBounds.origin.x = _selectionStartBounds.origin.x + deltaX;
+        newBounds.origin.y = _selectionStartBounds.origin.y + deltaY;
+    }
+
+    [self applySelectionBounds:newBounds toAnnotation:_activeSelectionAnnotation startBounds:_selectionStartBounds startPoints:_selectionStartPoints];
+    [self refreshDisplay];
+}
+
+- (void)endSelectionInteraction
+{
+    _activeSelectionAnnotation = nil;
+    _activeSelectionMode = nil;
+    _activeSelectionHandle = nil;
+    _selectionStartPoints = nil;
+    _selectionPageIndex = -1;
+}
+
+- (void)applySelectionBounds:(CGRect)newBounds toAnnotation:(NSMutableDictionary *)annotation startBounds:(CGRect)startBounds startPoints:(NSArray *)startPoints
+{
+    if (!annotation) {
+        return;
+    }
+
+    NSString *type = annotation[@"type"];
+    if ([type isEqualToString:@"ink"]) {
+        if (![startPoints isKindOfClass:[NSArray class]]) {
+            return;
+        }
+
+        CGFloat startWidth = MAX(startBounds.size.width, 0.001f);
+        CGFloat startHeight = MAX(startBounds.size.height, 0.001f);
+        CGFloat newWidth = MAX(newBounds.size.width, 0.001f);
+        CGFloat newHeight = MAX(newBounds.size.height, 0.001f);
+
+        NSMutableArray *transformedPoints = [NSMutableArray arrayWithCapacity:startPoints.count];
+        for (NSDictionary *point in startPoints) {
+            if (![point isKindOfClass:[NSDictionary class]]) {
+                continue;
+            }
+
+            CGFloat pointX = [point[@"x"] doubleValue];
+            CGFloat pointY = [point[@"y"] doubleValue];
+            CGFloat xRatio = (pointX - startBounds.origin.x) / startWidth;
+            CGFloat yRatio = (pointY - startBounds.origin.y) / startHeight;
+            CGFloat x = MIN(1.0f, MAX(0.0f, newBounds.origin.x + (xRatio * newWidth)));
+            CGFloat y = MIN(1.0f, MAX(0.0f, newBounds.origin.y + (yRatio * newHeight)));
+            [transformedPoints addObject:@{@"x": @(x), @"y": @(y)}];
+        }
+
+        annotation[@"points"] = transformedPoints;
+        return;
+    }
+
+    CGFloat x = MIN(1.0f, MAX(0.0f, newBounds.origin.x));
+    CGFloat y = MIN(1.0f, MAX(0.0f, newBounds.origin.y));
+    CGFloat width = MIN(1.0f, MAX(0.01f, newBounds.size.width));
+    CGFloat height = MIN(1.0f, MAX(0.01f, newBounds.size.height));
+    annotation[@"bounds"] = @{@"x": @(x),
+                               @"y": @(y),
+                               @"width": @(width),
+                               @"height": @(height)};
+}
+
+- (void)drawSelectionDecoration
+{
+    if (!_annotationMode || !_annotationEditable || ![_annotationTool isEqualToString:@"select"]) {
+        return;
+    }
+
+    NSDictionary *annotation = [self selectedAnnotation];
+    if (!annotation) {
+        return;
+    }
+
+    NSNumber *pageIndexValue = annotation[@"page"];
+    NSInteger pageIndex = pageIndexValue.integerValue - 1;
+    if (pageIndex < 0 || pageIndex >= _pdfDocument.pageCount) {
+        return;
+    }
+
+    PDFPage *page = [_pdfDocument pageAtIndex:pageIndex];
+    CGRect rect = [self viewRectForAnnotation:annotation page:page];
+    if (CGRectIsEmpty(rect)) {
+        return;
+    }
+
+    UIColor *outlineColor = [UIColor colorWithRed:0.13 green:0.27 blue:0.67 alpha:0.9];
+    UIBezierPath *outlinePath = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:4.0f];
+    outlinePath.lineWidth = 2.0f;
+    [outlineColor setStroke];
+    [outlinePath stroke];
+
+    CGRect deleteHandle = [self deleteHandleRectForRect:rect];
+    [[UIColor colorWithRed:0.83 green:0.19 blue:0.19 alpha:0.95] setFill];
+    UIBezierPath *deletePath = [UIBezierPath bezierPathWithOvalInRect:deleteHandle];
+    [deletePath fill];
+
+    CGRect resizeHandle = [self resizeHandleRectForRect:rect];
+    [[UIColor colorWithRed:0.13 green:0.27 blue:0.67 alpha:0.95] setFill];
+    UIBezierPath *resizePath = [UIBezierPath bezierPathWithRoundedRect:resizeHandle cornerRadius:2.0f];
+    [resizePath fill];
+}
+
+- (NSDictionary *)normalizedBoundsForViewRect:(CGRect)viewRect page:(PDFPage *)page
+{
+    if (!self.pdfView || !page) {
+        return @{@"x": @0, @"y": @0, @"width": @0, @"height": @0};
+    }
+
+    CGPoint topLeft = [self normalizedPointForViewPoint:viewRect.origin page:page];
+    CGPoint bottomRight = [self normalizedPointForViewPoint:CGPointMake(CGRectGetMaxX(viewRect), CGRectGetMaxY(viewRect)) page:page];
+
+    CGFloat minX = MIN(topLeft.x, bottomRight.x);
+    CGFloat maxX = MAX(topLeft.x, bottomRight.x);
+    CGFloat minY = MIN(topLeft.y, bottomRight.y);
+    CGFloat maxY = MAX(topLeft.y, bottomRight.y);
+
+    return @{@"x": @(MAX(0, minX)),
+             @"y": @(MAX(0, minY)),
+             @"width": @(MAX(0, maxX - minX)),
+             @"height": @(MAX(0, maxY - minY))};
+}
+
+- (NSString *)nextLocalAnnotationId
+{
+    return [NSString stringWithFormat:@"local-%@", RNPDFGenerateAnnotationId()];
+}
+
+- (UIColor *)colorForAnnotationType:(NSString *)type style:(NSDictionary *)style
+{
+    NSString *colorString = [style isKindOfClass:[NSDictionary class]] ? style[@"color"] : nil;
+    if (colorString) {
+        return RNPDFColorFromHexString(colorString, UIColor.blackColor);
+    }
+
+    if ([type isEqualToString:@"highlight"]) {
+        return [UIColor colorWithRed:1.0 green:0.93 blue:0.2 alpha:0.35];
+    }
+    if ([type isEqualToString:@"underline"]) {
+        return [UIColor colorWithRed:0.2 green:0.45 blue:1.0 alpha:0.5];
+    }
+    if ([type isEqualToString:@"strikeout"]) {
+        return [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.45];
+    }
+    if ([type isEqualToString:@"text"]) {
+        return [UIColor colorWithRed:0.13 green:0.27 blue:0.67 alpha:1.0];
+    }
+
+    return UIColor.blackColor;
+}
+
+- (CGFloat)lineWidthForAnnotation:(NSDictionary *)annotation
+{
+    NSDictionary *style = [annotation[@"style"] isKindOfClass:[NSDictionary class]] ? annotation[@"style"] : nil;
+    NSNumber *thickness = style[@"thickness"];
+    if ([thickness isKindOfClass:[NSNumber class]]) {
+        return MAX(1.0f, thickness.floatValue);
+    }
+
+    return 2.0f;
+}
+
+- (UIFont *)fontForAnnotation:(NSDictionary *)annotation
+{
+    NSDictionary *style = [annotation[@"style"] isKindOfClass:[NSDictionary class]] ? annotation[@"style"] : nil;
+    NSNumber *fontSize = style[@"fontSize"];
+    CGFloat size = [fontSize isKindOfClass:[NSNumber class]] ? MAX(10.0f, fontSize.floatValue) : 15.0f;
+    return [UIFont systemFontOfSize:size];
+}
+
+- (NSTextAlignment)alignmentForAnnotation:(NSDictionary *)annotation
+{
+    NSDictionary *style = [annotation[@"style"] isKindOfClass:[NSDictionary class]] ? annotation[@"style"] : nil;
+    NSString *alignment = style[@"textAlign"];
+    if ([alignment isEqualToString:@"center"]) {
+        return NSTextAlignmentCenter;
+    }
+    if ([alignment isEqualToString:@"right"]) {
+        return NSTextAlignmentRight;
+    }
+
+    return NSTextAlignmentLeft;
+}
+
+- (void)drawRect:(CGRect)rect
+{
+    [super drawRect:rect];
+
+    if (!_pdfDocument || _draftAnnotations.count == 0) {
+        return;
+    }
+
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    if (!context) {
+        return;
+    }
+
+    for (NSDictionary *annotation in _draftAnnotations) {
+        NSNumber *pageIndexValue = annotation[@"page"];
+        NSInteger pageIndex = pageIndexValue.integerValue - 1;
+        if (pageIndex < 0 || pageIndex >= _pdfDocument.pageCount) {
+            continue;
+        }
+
+        PDFPage *page = [_pdfDocument pageAtIndex:pageIndex];
+        NSString *type = annotation[@"type"];
+        if ([type isEqualToString:@"ink"]) {
+            NSArray *points = annotation[@"points"];
+            if (points.count < 2) {
+                continue;
+            }
+
+            UIBezierPath *path = [UIBezierPath bezierPath];
+            BOOL firstPoint = YES;
+            for (NSDictionary *point in points) {
+                CGPoint normalizedPoint = CGPointMake([point[@"x"] doubleValue], [point[@"y"] doubleValue]);
+                CGPoint viewPoint = [self viewPointForNormalizedPoint:normalizedPoint page:page];
+                if (firstPoint) {
+                    [path moveToPoint:viewPoint];
+                    firstPoint = NO;
+                } else {
+                    [path addLineToPoint:viewPoint];
+                }
+            }
+
+            [[self colorForAnnotationType:type style:annotation[@"style"]] setStroke];
+            path.lineWidth = [self lineWidthForAnnotation:annotation];
+            path.lineJoinStyle = kCGLineJoinRound;
+            path.lineCapStyle = kCGLineCapRound;
+            [path stroke];
+        } else if ([type isEqualToString:@"text"]) {
+            NSDictionary *bounds = annotation[@"bounds"];
+            CGRect viewRect = [self viewRectForNormalizedBounds:bounds page:page];
+            if (CGRectIsEmpty(viewRect)) {
+                continue;
+            }
+
+            UIColor *borderColor = [self colorForAnnotationType:type style:annotation[@"style"]];
+            [[UIColor colorWithWhite:1.0 alpha:0.78] setFill];
+            UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:viewRect cornerRadius:4.0f];
+            [path fill];
+            [borderColor setStroke];
+            path.lineWidth = 1.0f;
+            [path stroke];
+
+            NSString *text = annotation[@"text"];
+            if (![text isKindOfClass:[NSString class]]) {
+                text = @"";
+            }
+
+            NSMutableParagraphStyle *paragraphStyle = [NSMutableParagraphStyle new];
+            paragraphStyle.alignment = [self alignmentForAnnotation:annotation];
+            NSDictionary *attributes = @{
+                NSFontAttributeName: [self fontForAnnotation:annotation],
+                NSForegroundColorAttributeName: borderColor,
+                NSParagraphStyleAttributeName: paragraphStyle,
+            };
+            [text drawInRect:CGRectInset(viewRect, 6.0f, 4.0f) withAttributes:attributes];
+        } else if ([type isEqualToString:@"highlight"] || [type isEqualToString:@"underline"] || [type isEqualToString:@"strikeout"]) {
+            NSDictionary *bounds = annotation[@"bounds"];
+            CGRect viewRect = [self viewRectForNormalizedBounds:bounds page:page];
+            if (CGRectIsEmpty(viewRect)) {
+                continue;
+            }
+
+            UIColor *fillColor = [self colorForAnnotationType:type style:annotation[@"style"]];
+            CGContextSetFillColorWithColor(context, fillColor.CGColor);
+            CGContextFillRect(context, viewRect);
+
+            if ([type isEqualToString:@"underline"] || [type isEqualToString:@"strikeout"]) {
+                CGContextSetStrokeColorWithColor(context, fillColor.CGColor);
+                CGContextSetLineWidth(context, MAX(1.0f, viewRect.size.height * 0.15f));
+                CGFloat y = [type isEqualToString:@"underline"] ? CGRectGetMaxY(viewRect) - 2.0f : CGRectGetMidY(viewRect);
+                CGContextMoveToPoint(context, CGRectGetMinX(viewRect), y);
+                CGContextAddLineToPoint(context, CGRectGetMaxX(viewRect), y);
+                CGContextStrokePath(context);
+            }
+        }
+    }
+
+    [self drawSelectionDecoration];
+}
+
+- (void)beginInkAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
+{
+    if (!self.annotationEditable || !page) {
+        return;
+    }
+
+    NSMutableDictionary *annotation = [@{
+        @"id": [self nextLocalAnnotationId],
+        @"page": @([_pdfDocument indexForPage:page] + 1),
+        @"type": @"ink",
+        @"points": [NSMutableArray array],
+        @"style": @{@"color": @"#111111", @"thickness": @(2.0f)}
+    } mutableCopy];
+
+    [_draftAnnotations addObject:annotation];
+    _activeInkAnnotation = annotation;
+    [self appendInkPointAtViewPoint:viewPoint page:page];
+}
+
+- (void)appendInkPointAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
+{
+    if (!_activeInkAnnotation || !page) {
+        return;
+    }
+
+    CGPoint normalizedPoint = [self normalizedPointForViewPoint:viewPoint page:page];
+    NSMutableArray *points = _activeInkAnnotation[@"points"];
+    if (![points isKindOfClass:[NSMutableArray class]]) {
+        points = [NSMutableArray array];
+        _activeInkAnnotation[@"points"] = points;
+    }
+
+    [points addObject:@{@"x": @(normalizedPoint.x), @"y": @(normalizedPoint.y)}];
+    [self refreshDisplay];
+}
+
+- (void)endInk
+{
+    _activeInkAnnotation = nil;
+    [self refreshDisplay];
+}
+
+- (void)beginMarkupAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page type:(NSString *)type
+{
+    if (!self.annotationEditable || !page) {
+        return;
+    }
+
+    CGPoint normalizedPoint = [self normalizedPointForViewPoint:viewPoint page:page];
+    _activeMarkupStartNormalized = normalizedPoint;
+
+    NSMutableDictionary *annotation = [@{
+        @"id": [self nextLocalAnnotationId],
+        @"page": @([_pdfDocument indexForPage:page] + 1),
+        @"type": type ?: @"highlight",
+        @"bounds": @{@"x": @(normalizedPoint.x), @"y": @(normalizedPoint.y), @"width": @0, @"height": @0},
+        @"style": @{}
+    } mutableCopy];
+
+    [_draftAnnotations addObject:annotation];
+    _activeMarkupAnnotation = annotation;
+    [self refreshDisplay];
+}
+
+- (void)updateMarkupAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
+{
+    if (!_activeMarkupAnnotation || !page) {
+        return;
+    }
+
+    CGPoint currentPoint = [self normalizedPointForViewPoint:viewPoint page:page];
+    CGFloat minX = MIN(_activeMarkupStartNormalized.x, currentPoint.x);
+    CGFloat minY = MIN(_activeMarkupStartNormalized.y, currentPoint.y);
+    CGFloat maxX = MAX(_activeMarkupStartNormalized.x, currentPoint.x);
+    CGFloat maxY = MAX(_activeMarkupStartNormalized.y, currentPoint.y);
+
+    _activeMarkupAnnotation[@"bounds"] = @{@"x": @(minX), @"y": @(minY), @"width": @(MAX(0, maxX - minX)), @"height": @(MAX(0, maxY - minY))};
+    [self refreshDisplay];
+}
+
+- (void)endMarkup
+{
+    _activeMarkupAnnotation = nil;
+    [self refreshDisplay];
+}
+
+- (void)createTextAnnotationAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
+{
+    if (!self.annotationEditable || !page) {
+        return;
+    }
+
+    [self commitTextEditingIfNeeded];
+
+    CGPoint normalizedPoint = [self normalizedPointForViewPoint:viewPoint page:page];
+    CGFloat width = 0.25f;
+    CGFloat height = 0.12f;
+    CGFloat maxX = MAX(0.0f, 1.0f - width);
+    CGFloat maxY = MAX(0.0f, 1.0f - height);
+    CGFloat x = MIN(MAX(normalizedPoint.x, 0.0f), maxX);
+    CGFloat y = MIN(MAX(normalizedPoint.y, 0.0f), maxY);
+    NSDictionary *bounds = @{@"x": @(x), @"y": @(y), @"width": @(width), @"height": @(height)};
+
+    NSMutableDictionary *annotation = [@{
+        @"id": [self nextLocalAnnotationId],
+        @"page": @([_pdfDocument indexForPage:page] + 1),
+        @"type": @"text",
+        @"bounds": bounds,
+        @"text": @"",
+        @"style": @{@"color": @"#2244aa", @"fontSize": @(15.0f), @"textAlign": @"left"}
+    } mutableCopy];
+
+    [_draftAnnotations addObject:annotation];
+    _activeTextAnnotation = annotation;
+
+    UITextView *textView = [[UITextView alloc] initWithFrame:[self viewRectForNormalizedBounds:bounds page:page]];
+    textView.delegate = self;
+    textView.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.9f];
+    textView.layer.borderColor = [UIColor colorWithRed:0.2 green:0.4 blue:1.0 alpha:0.9].CGColor;
+    textView.layer.borderWidth = 1.0f;
+    textView.layer.cornerRadius = 4.0f;
+    textView.clipsToBounds = YES;
+    textView.textColor = [self colorForAnnotationType:@"text" style:annotation[@"style"]];
+    textView.font = [self fontForAnnotation:annotation];
+    textView.textAlignment = [self alignmentForAnnotation:annotation];
+    textView.scrollEnabled = YES;
+    textView.returnKeyType = UIReturnKeyDefault;
+
+    if (_activeTextView) {
+        [_activeTextView removeFromSuperview];
+    }
+
+    _activeTextView = textView;
+    [self addSubview:_activeTextView];
+    [_activeTextView becomeFirstResponder];
+    [self refreshDisplay];
+}
+
+- (void)updateActiveTextEditorFrame
+{
+    if (!_activeTextView || !_activeTextAnnotation || !self.pdfDocument || !self.pdfView) {
+        return;
+    }
+
+    NSNumber *pageNumber = _activeTextAnnotation[@"page"];
+    NSInteger pageIndex = pageNumber.integerValue - 1;
+    if (pageIndex < 0 || pageIndex >= self.pdfDocument.pageCount) {
+        return;
+    }
+
+    PDFPage *page = [self.pdfDocument pageAtIndex:pageIndex];
+    _activeTextView.frame = [self viewRectForNormalizedBounds:_activeTextAnnotation[@"bounds"] page:page];
+}
+
+- (void)commitTextEditingIfNeeded
+{
+    if (!_activeTextView || !_activeTextAnnotation) {
+        return;
+    }
+
+    _activeTextAnnotation[@"text"] = _activeTextView.text ?: @"";
+    [_activeTextView resignFirstResponder];
+    [_activeTextView removeFromSuperview];
+    _activeTextView = nil;
+    _activeTextAnnotation = nil;
+    [self refreshDisplay];
+}
+
+- (void)textViewDidChange:(UITextView *)textView
+{
+    if (textView == _activeTextView && _activeTextAnnotation) {
+        _activeTextAnnotation[@"text"] = textView.text ?: @"";
+        [self setNeedsDisplay];
+    }
+}
+
+- (void)textViewDidEndEditing:(UITextView *)textView
+{
+    if (textView == _activeTextView) {
+        [self commitTextEditingIfNeeded];
     }
 }
 

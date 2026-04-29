@@ -30,6 +30,11 @@
    fitPolicy: ?Int32,
    spacing: ?Int32,
    password: ?string,
+  annotations: ?string,
+  annotationMode: ?boolean,
+  annotationTool: ?string,
+  annotationEditable: ?boolean,
+  annotationIdMode: ?string,
    onChange: ?BubblingEventHandler<ChangeEvent>,
    singlePage: ?boolean,
  |}>;
@@ -47,10 +52,13 @@
   +stopNativeAutoScroll: (
     viewRef: React.ElementRef<ComponentType>,
   ) => void;
+  +saveAnnotations: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
-  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll'],
+  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll', 'saveAnnotations'],
 });
 
  export default codegenNativeComponent<NativeProps>('RNPDFPdfView');

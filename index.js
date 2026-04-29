@@ -57,6 +57,11 @@ export default class Pdf extends Component {
         fitPolicy: PropTypes.number,
         trustAllCerts: PropTypes.bool,
         singlePage: PropTypes.bool,
+        annotations: PropTypes.object,
+        annotationMode: PropTypes.bool,
+        annotationTool: PropTypes.oneOf(['select', 'ink', 'text', 'highlight', 'underline', 'strikeout']),
+        annotationEditable: PropTypes.bool,
+        annotationIdMode: PropTypes.oneOf(['auto', 'manual']),
         onLoadComplete: PropTypes.func,
         onPageChanged: PropTypes.func,
         onError: PropTypes.func,
@@ -96,6 +101,11 @@ export default class Pdf extends Component {
         trustAllCerts: true,
         usePDFKit: true,
         singlePage: false,
+        annotations: null,
+        annotationMode: false,
+        annotationTool: 'select',
+        annotationEditable: true,
+        annotationIdMode: 'auto',
         onLoadProgress: (percent) => {
         },
         onLoadComplete: (numberOfPages, path) => {
@@ -127,6 +137,7 @@ export default class Pdf extends Component {
         };
 
         this.lastRNBFTask = null;
+        this._annotationSavePromise = null;
 
     }
 
@@ -156,6 +167,10 @@ export default class Pdf extends Component {
     componentWillUnmount() {
         this._mounted = false;
         this.stopAutoScroll();
+        if (this._annotationSavePromise) {
+            this._annotationSavePromise.reject(new Error('Pdf unmounted before annotation save completed'));
+            this._annotationSavePromise = null;
+        }
         if (this.lastRNBFTask) {
             // this.lastRNBFTask.cancel(err => {
             // });
@@ -372,6 +387,42 @@ export default class Pdf extends Component {
         
     }
 
+    saveAnnotations() {
+        if (this._annotationSavePromise) {
+            return Promise.reject(new Error('An annotation save is already in progress'));
+        }
+
+        return new Promise((resolve, reject) => {
+            if (!this._root) {
+                reject(new Error('Pdf is not mounted'));
+                return;
+            }
+
+            this._annotationSavePromise = {resolve, reject};
+
+            if (!!global?.nativeFabricUIManager) {
+                if (PdfViewCommands.saveAnnotations) {
+                    PdfViewCommands.saveAnnotations(this._root);
+                } else {
+                    this._annotationSavePromise = null;
+                    reject(new Error('Annotation save command is not available'));
+                }
+            } else {
+                const ReactNative = require('react-native');
+                try {
+                    ReactNative.UIManager.dispatchViewManagerCommand(
+                        ReactNative.findNodeHandle(this._root),
+                        'saveAnnotations',
+                        [],
+                    );
+                } catch (error) {
+                    this._annotationSavePromise = null;
+                    reject(error);
+                }
+            }
+        });
+    }
+
     startAutoScroll( dpPerSecond = 15, resumeDelay = 3000 ) {
         this._isAutoScrollActive = true;
         if (!!global?.nativeFabricUIManager) {
@@ -465,6 +516,27 @@ export default class Pdf extends Component {
             } else if (message[0] === 'autoScrollEnd') {
                 this._isAutoScrollActive = false;
                 this.props.onAutoScrollEnd && this.props.onAutoScrollEnd();
+            } else if (message[0] === 'annotationSaveComplete') {
+                message[1] = message.slice(1).join('|');
+
+                let annotationDocument;
+                try {
+                    annotationDocument = message[1] ? JSON.parse(message[1]) : null;
+                } catch (e) {
+                    annotationDocument = message[1];
+                }
+
+                if (this._annotationSavePromise) {
+                    this._annotationSavePromise.resolve(annotationDocument);
+                    this._annotationSavePromise = null;
+                }
+            } else if (message[0] === 'annotationSaveError') {
+                message[1] = message.slice(1).join('|');
+
+                if (this._annotationSavePromise) {
+                    this._annotationSavePromise.reject(new Error(message[1] || 'Annotation save failed'));
+                    this._annotationSavePromise = null;
+                }
             }
         }
 
@@ -476,7 +548,22 @@ export default class Pdf extends Component {
 
     };
 
+    _getNativeAnnotations = () => {
+        if (!this.props.annotations) {
+            return null;
+        }
+
+        try {
+            return JSON.stringify(this.props.annotations);
+        } catch (error) {
+            this._onError(error);
+            return null;
+        }
+    };
+
     render() {
+        const nativeAnnotations = this._getNativeAnnotations();
+
         if (Platform.OS === "android" || Platform.OS === "ios" || Platform.OS === "windows") {
                 return (
                     <View style={[this.props.style,{overflow: 'hidden'}]}>
@@ -492,6 +579,7 @@ export default class Pdf extends Component {
                                         <PdfCustom
                                             ref={component => (this._root = component)}
                                             {...this.props}
+                                            annotations={nativeAnnotations}
                                             style={[{flex:1,backgroundColor: '#EEE'}, this.props.style]}
                                             path={this.state.path}
                                             onChange={this._onChange}
@@ -501,6 +589,7 @@ export default class Pdf extends Component {
                                                 <PdfCustom
                                                     ref={component => (this._root = component)}
                                                     {...this.props}
+                                                    annotations={nativeAnnotations}
                                                     style={[{backgroundColor: '#EEE',overflow: 'hidden'}, this.props.style]}
                                                     path={this.state.path}
                                                     onChange={this._onChange}
