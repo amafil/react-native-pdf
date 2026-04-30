@@ -82,6 +82,7 @@ const float MIN_SCALE = 1.0f;
 - (void)deleteAnnotation:(NSDictionary *)annotation;
 - (void)deleteSelectedAnnotation;
 - (void)deleteAllAnnotations;
+- (void)refreshDisplay;
 - (void)beginSelectionInteractionAtPoint:(CGPoint)point hit:(NSDictionary *)hit;
 - (void)updateSelectionInteractionAtPoint:(CGPoint)point;
 - (void)endSelectionInteraction;
@@ -1577,7 +1578,7 @@ static NSString *RNPDFGenerateAnnotationId(void)
     [self updateActiveTextEditorFrame];
 }
 
-- (BOOL)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
     if (_activeTextView) {
         if (CGRectContainsPoint(_activeTextView.frame, point)) {
