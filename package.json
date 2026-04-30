@@ -49,6 +49,7 @@
         "index.d.ts",
         "index.js",
         "index.js.flow",
+        "annotationDocumentUtils.js",
         "PdfManager.js",
         "PdfPageView.js",
         "PdfView.js",

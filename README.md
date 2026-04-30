@@ -13,6 +13,63 @@ A react native PDF view component (cross-platform support)
 * support password protected pdf
 * jump to a specific page in the pdf
 * auto scroll with configurable speed (ideal for music sheets)
+* annotate pages with ink, text, and highlight tools
+
+### Annotation editing
+
+The component accepts an annotation document through the `annotations` prop together with `annotationMode`, `annotationTool`, `annotationEditable`, and `annotationIdMode`. Ink defaults can be controlled with `annotationInkColor` and `annotationInkThickness`.
+
+```tsx
+const annotations = {
+  editable: true,
+  idMode: 'auto',
+  annotations: [
+    {
+      id: 'note-1',
+      page: 1,
+      type: 'text',
+      bounds: {x: 0.15, y: 0.24, width: 0.28, height: 0.12},
+      text: 'Reminder for page one',
+      style: {color: '#2244aa', fontSize: 15, textAlign: 'left'},
+    },
+    {
+      id: 'stroke-1',
+      page: 2,
+      type: 'ink',
+      points: [
+        {x: 0.12, y: 0.18},
+        {x: 0.26, y: 0.22},
+        {x: 0.34, y: 0.19},
+      ],
+      style: {color: '#111111', thickness: 2},
+    },
+  ],
+};
+
+<Pdf
+  ref={pdfRef}
+  source={source}
+  annotations={annotations}
+  annotationMode
+  annotationTool="ink"
+  annotationInkColor="#1d4ed8"
+  annotationInkThickness={4}
+/>
+```
+
+Supported tools are `select`, `ink`, `text`, and `highlight`.
+
+In `select` mode, tap an annotation to select it, drag to move it, and use the resize handle to resize text and highlight annotations. Deletion is host-controlled: call `pdfRef.current.deleteSelectedAnnotation()` or `pdfRef.current.deleteAllAnnotations()` from your own UI.
+
+Call `await pdfRef.current.saveAnnotations()` to receive the current document back from native as `{ editable, idMode, annotations }`.
+
+Legacy `underline` and `strikeout` annotations are normalized to `highlight` when loading and saving.
+
+Notes:
+
+* Editing currently targets the default vertical viewer flow.
+* Android editing is disabled when `horizontal`, `enablePaging`, `enableRTL`, or `singlePage` are enabled.
+* iOS editing uses PDFKit when `usePDFKit` is true.
 
 ### Supported versions
 We use [`react-native-blob-util`](https://github.com/RonRadtke/react-native-blob-util) to handle file system access in this package,

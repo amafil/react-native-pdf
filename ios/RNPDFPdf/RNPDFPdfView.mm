@@ -63,9 +63,12 @@ const float MIN_SCALE = 1.0f;
 @property(nonatomic, assign) BOOL annotationEditable;
 @property(nonatomic, copy) NSString *annotationTool;
 @property(nonatomic, copy) NSString *annotationIdMode;
+@property(nonatomic, copy) NSString *annotationInkColor;
+@property(nonatomic, assign) CGFloat annotationInkThickness;
 
 - (void)replaceAnnotationsJSONString:(NSString *)json editable:(BOOL)editable idMode:(NSString *)idMode;
 - (void)setAnnotationMode:(BOOL)annotationMode tool:(NSString *)tool editable:(BOOL)editable idMode:(NSString *)idMode;
+- (void)setInkDefaultsColor:(NSString *)color thickness:(CGFloat)thickness;
 - (void)beginInkAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page;
 - (void)appendInkPointAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page;
 - (void)endInk;
@@ -77,6 +80,8 @@ const float MIN_SCALE = 1.0f;
 - (void)selectAnnotation:(NSDictionary *)annotation;
 - (void)clearSelection;
 - (void)deleteAnnotation:(NSDictionary *)annotation;
+- (void)deleteSelectedAnnotation;
+- (void)deleteAllAnnotations;
 - (void)beginSelectionInteractionAtPoint:(CGPoint)point hit:(NSDictionary *)hit;
 - (void)updateSelectionInteractionAtPoint:(CGPoint)point;
 - (void)endSelectionInteraction;
@@ -209,6 +214,14 @@ using namespace facebook::react;
         _annotationIdMode = RCTNSStringFromStringNilIfEmpty(newProps.annotationIdMode);
         [updatedPropNames addObject:@"annotationIdMode"];
     }
+    if (_annotationInkColor != RCTNSStringFromStringNilIfEmpty(newProps.annotationInkColor)) {
+        _annotationInkColor = RCTNSStringFromStringNilIfEmpty(newProps.annotationInkColor);
+        [updatedPropNames addObject:@"annotationInkColor"];
+    }
+    if (_annotationInkThickness != newProps.annotationInkThickness) {
+        _annotationInkThickness = newProps.annotationInkThickness;
+        [updatedPropNames addObject:@"annotationInkThickness"];
+    }
     if (_fitPolicy != newProps.fitPolicy) {
         _fitPolicy = newProps.fitPolicy;
         [updatedPropNames addObject:@"fitPolicy"];
@@ -245,6 +258,7 @@ using namespace facebook::react;
     if (_annotationOverlay) {
         [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
         [_annotationOverlay setAnnotationMode:_annotationMode tool:_annotationTool editable:_annotationEditable idMode:_annotationIdMode];
+        [_annotationOverlay setInkDefaultsColor:_annotationInkColor thickness:_annotationInkThickness];
         _annotationOverlay.pdfView = _pdfView;
         _annotationOverlay.pdfDocument = _pdfDocument;
     }
@@ -353,6 +367,8 @@ using namespace facebook::react;
     _showsHorizontalScrollIndicator = YES;
     _showsVerticalScrollIndicator = YES;
     _scrollEnabled = YES;
+    _annotationInkColor = @"#111111";
+    _annotationInkThickness = 2.0f;
     _enableTextSelection = YES;
     _selectedText = nil;
     _currentPDFSelection = nil;
@@ -383,6 +399,7 @@ using namespace facebook::react;
     _annotationOverlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _annotationOverlay.backgroundColor = UIColor.clearColor;
     _annotationOverlay.userInteractionEnabled = YES;
+    [_annotationOverlay setInkDefaultsColor:_annotationInkColor thickness:_annotationInkThickness];
     [self addSubview:_annotationOverlay];
     [self bringSubviewToFront:_annotationOverlay];
 
@@ -670,6 +687,14 @@ using namespace facebook::react;
                 [_pdfView goToDestination:pdfDest];
                 _pdfView.scaleFactor = _fixScaleFactor*_scale;
             }
+        }
+
+        if (_annotationOverlay) {
+            [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
+            [_annotationOverlay setAnnotationMode:_annotationMode tool:_annotationTool editable:_annotationEditable idMode:_annotationIdMode];
+            [_annotationOverlay setInkDefaultsColor:_annotationInkColor thickness:_annotationInkThickness];
+            _annotationOverlay.pdfView = _pdfView;
+            _annotationOverlay.pdfDocument = _pdfDocument;
         }
 
         _pdfView.backgroundColor = [UIColor clearColor];
@@ -960,12 +985,7 @@ using namespace facebook::react;
                 NSDictionary *hit = [_annotationOverlay annotationSelectionHitAtPoint:point includeHandles:YES];
                 if (hit) {
                     NSDictionary *annotation = hit[@"annotation"];
-                    NSString *hitPart = hit[@"hitPart"];
-                    if ([hitPart isEqualToString:@"delete"]) {
-                        [_annotationOverlay deleteAnnotation:annotation];
-                    } else {
-                        [_annotationOverlay selectAnnotation:annotation];
-                    }
+                    [_annotationOverlay selectAnnotation:annotation];
 
                     return;
                 }
@@ -1032,14 +1052,7 @@ using namespace facebook::react;
                 return;
             }
 
-            NSDictionary *annotation = hit[@"annotation"];
-            NSString *hitPart = hit[@"hitPart"];
-            if ([hitPart isEqualToString:@"delete"]) {
-                [_annotationOverlay deleteAnnotation:annotation];
-                return;
-            }
-
-            [_annotationOverlay selectAnnotation:annotation];
+            [_annotationOverlay selectAnnotation:hit[@"annotation"]];
             [_annotationOverlay beginSelectionInteractionAtPoint:point hit:hit];
         } else if (sender.state == UIGestureRecognizerStateChanged) {
             [_annotationOverlay updateSelectionInteractionAtPoint:point];
@@ -1052,19 +1065,19 @@ using namespace facebook::react;
     if (sender.state == UIGestureRecognizerStateBegan) {
         if ([_annotationTool isEqualToString:@"ink"]) {
             [_annotationOverlay beginInkAtViewPoint:point page:pdfPage];
-        } else if ([@[@"highlight", @"underline", @"strikeout"] containsObject:_annotationTool]) {
+        } else if ([_annotationTool isEqualToString:@"highlight"]) {
             [_annotationOverlay beginMarkupAtViewPoint:point page:pdfPage type:_annotationTool];
         }
     } else if (sender.state == UIGestureRecognizerStateChanged) {
         if ([_annotationTool isEqualToString:@"ink"]) {
             [_annotationOverlay appendInkPointAtViewPoint:point page:pdfPage];
-        } else if ([@[@"highlight", @"underline", @"strikeout"] containsObject:_annotationTool]) {
+        } else if ([_annotationTool isEqualToString:@"highlight"]) {
             [_annotationOverlay updateMarkupAtViewPoint:point page:pdfPage];
         }
     } else if (sender.state == UIGestureRecognizerStateEnded || sender.state == UIGestureRecognizerStateCancelled || sender.state == UIGestureRecognizerStateFailed) {
         if ([_annotationTool isEqualToString:@"ink"]) {
             [_annotationOverlay endInk];
-        } else if ([@[@"highlight", @"underline", @"strikeout"] containsObject:_annotationTool]) {
+        } else if ([_annotationTool isEqualToString:@"highlight"]) {
             [_annotationOverlay endMarkup];
         }
     }
@@ -1080,6 +1093,22 @@ using namespace facebook::react;
     }
 
     [self notifyOnChangeWithMessage:@"annotationSaveError|Annotation overlay unavailable"];
+}
+
+- (void)deleteSelectedAnnotation
+{
+    if (_annotationOverlay) {
+        [_annotationOverlay commitTextEditingIfNeeded];
+        [_annotationOverlay deleteSelectedAnnotation];
+    }
+}
+
+- (void)deleteAllAnnotations
+{
+    if (_annotationOverlay) {
+        [_annotationOverlay commitTextEditingIfNeeded];
+        [_annotationOverlay deleteAllAnnotations];
+    }
 }
 
 /**
@@ -1158,7 +1187,7 @@ using namespace facebook::react;
             return [_annotationOverlay annotationSelectionHitAtPoint:point includeHandles:YES] != nil;
         }
 
-        return [@[@"ink", @"highlight", @"underline", @"strikeout"] containsObject:_annotationTool];
+        return [@[@"ink", @"highlight"] containsObject:_annotationTool];
     }
 
     return !_singlePage;
@@ -1407,6 +1436,8 @@ static NSString *RNPDFGenerateAnnotationId(void)
         _annotationEditable = YES;
         _annotationTool = @"select";
         _annotationIdMode = @"auto";
+        _annotationInkColor = @"#111111";
+        _annotationInkThickness = 2.0f;
         self.backgroundColor = UIColor.clearColor;
         self.opaque = NO;
     }
@@ -1441,12 +1472,33 @@ static NSString *RNPDFGenerateAnnotationId(void)
 {
     _annotationMode = annotationMode;
     _annotationEditable = editable;
-    _annotationTool = tool ?: @"select";
+    _annotationTool = [self normalizedAnnotationType:(tool ?: @"select")];
     _annotationIdMode = idMode ?: @"auto";
 
     if (!annotationMode) {
         [self commitTextEditingIfNeeded];
     }
+}
+
+- (void)setInkDefaultsColor:(NSString *)color thickness:(CGFloat)thickness
+{
+    _annotationInkColor = color.length > 0 ? color : @"#111111";
+    _annotationInkThickness = thickness > 0 ? thickness : 2.0f;
+}
+
+- (NSString *)normalizedAnnotationType:(NSString *)type
+{
+    if ([type isEqualToString:@"underline"] || [type isEqualToString:@"strikeout"]) {
+        return @"highlight";
+    }
+
+    return type;
+}
+
+- (BOOL)annotationSupportsResize:(NSDictionary *)annotation
+{
+    NSString *type = [self normalizedAnnotationType:annotation[@"type"]];
+    return [type isEqualToString:@"text"] || [type isEqualToString:@"highlight"];
 }
 
 - (NSArray *)parseAnnotationsFromJSONString:(NSString *)json
@@ -1487,6 +1539,10 @@ static NSString *RNPDFGenerateAnnotationId(void)
         }
 
         NSMutableDictionary *annotation = [item mutableCopy];
+        NSString *type = [self normalizedAnnotationType:annotation[@"type"]];
+        if (type.length > 0) {
+            annotation[@"type"] = type;
+        }
         if (!annotation[@"id"]) {
             annotation[@"id"] = RNPDFGenerateAnnotationId();
         }
@@ -1727,12 +1783,6 @@ static NSString *RNPDFGenerateAnnotationId(void)
     return nil;
 }
 
-- (CGRect)deleteHandleRectForRect:(CGRect)rect
-{
-    CGFloat size = MAX(16.0f, MIN(rect.size.width, rect.size.height) * 0.18f);
-    return CGRectMake(CGRectGetMaxX(rect) - size, CGRectGetMinY(rect) - size, size, size);
-}
-
 - (CGRect)resizeHandleRectForRect:(CGRect)rect
 {
     CGFloat size = MAX(16.0f, MIN(rect.size.width, rect.size.height) * 0.18f);
@@ -1768,12 +1818,8 @@ static NSString *RNPDFGenerateAnnotationId(void)
         }
 
         NSString *hitPart = @"body";
-        if (includeHandles && [_selectedAnnotationId isEqualToString:annotation[@"id"]]) {
-            if (CGRectContainsPoint([self deleteHandleRectForRect:rect], point)) {
-                hitPart = @"delete";
-            } else if (CGRectContainsPoint([self resizeHandleRectForRect:rect], point)) {
-                hitPart = @"resize";
-            }
+        if (includeHandles && [_selectedAnnotationId isEqualToString:annotation[@"id"]] && [self annotationSupportsResize:annotation] && CGRectContainsPoint([self resizeHandleRectForRect:rect], point)) {
+            hitPart = @"resize";
         }
 
         return @{@"annotation": annotation,
@@ -1829,6 +1875,23 @@ static NSString *RNPDFGenerateAnnotationId(void)
 
     [self endSelectionInteraction];
 
+    [self refreshDisplay];
+}
+
+- (void)deleteSelectedAnnotation
+{
+    NSDictionary *annotation = [self selectedAnnotation];
+    if (annotation) {
+        [self deleteAnnotation:annotation];
+    }
+}
+
+- (void)deleteAllAnnotations
+{
+    [self commitTextEditingIfNeeded];
+    [_draftAnnotations removeAllObjects];
+    _selectedAnnotationId = nil;
+    [self endSelectionInteraction];
     [self refreshDisplay];
 }
 
@@ -1961,15 +2024,12 @@ static NSString *RNPDFGenerateAnnotationId(void)
     [outlineColor setStroke];
     [outlinePath stroke];
 
-    CGRect deleteHandle = [self deleteHandleRectForRect:rect];
-    [[UIColor colorWithRed:0.83 green:0.19 blue:0.19 alpha:0.95] setFill];
-    UIBezierPath *deletePath = [UIBezierPath bezierPathWithOvalInRect:deleteHandle];
-    [deletePath fill];
-
-    CGRect resizeHandle = [self resizeHandleRectForRect:rect];
-    [[UIColor colorWithRed:0.13 green:0.27 blue:0.67 alpha:0.95] setFill];
-    UIBezierPath *resizePath = [UIBezierPath bezierPathWithRoundedRect:resizeHandle cornerRadius:2.0f];
-    [resizePath fill];
+    if ([self annotationSupportsResize:annotation]) {
+        CGRect resizeHandle = [self resizeHandleRectForRect:rect];
+        [[UIColor colorWithRed:0.13 green:0.27 blue:0.67 alpha:0.95] setFill];
+        UIBezierPath *resizePath = [UIBezierPath bezierPathWithRoundedRect:resizeHandle cornerRadius:2.0f];
+        [resizePath fill];
+    }
 }
 
 - (NSDictionary *)normalizedBoundsForViewRect:(CGRect)viewRect page:(PDFPage *)page
@@ -1999,21 +2059,16 @@ static NSString *RNPDFGenerateAnnotationId(void)
 
 - (UIColor *)colorForAnnotationType:(NSString *)type style:(NSDictionary *)style
 {
+    NSString *normalizedType = [self normalizedAnnotationType:type];
     NSString *colorString = [style isKindOfClass:[NSDictionary class]] ? style[@"color"] : nil;
     if (colorString) {
         return RNPDFColorFromHexString(colorString, UIColor.blackColor);
     }
 
-    if ([type isEqualToString:@"highlight"]) {
+    if ([normalizedType isEqualToString:@"highlight"]) {
         return [UIColor colorWithRed:1.0 green:0.93 blue:0.2 alpha:0.35];
     }
-    if ([type isEqualToString:@"underline"]) {
-        return [UIColor colorWithRed:0.2 green:0.45 blue:1.0 alpha:0.5];
-    }
-    if ([type isEqualToString:@"strikeout"]) {
-        return [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.45];
-    }
-    if ([type isEqualToString:@"text"]) {
+    if ([normalizedType isEqualToString:@"text"]) {
         return [UIColor colorWithRed:0.13 green:0.27 blue:0.67 alpha:1.0];
     }
 
@@ -2074,7 +2129,7 @@ static NSString *RNPDFGenerateAnnotationId(void)
         }
 
         PDFPage *page = [_pdfDocument pageAtIndex:pageIndex];
-        NSString *type = annotation[@"type"];
+        NSString *type = [self normalizedAnnotationType:annotation[@"type"]];
         if ([type isEqualToString:@"ink"]) {
             NSArray *points = annotation[@"points"];
             if (points.count < 2) {
@@ -2127,7 +2182,7 @@ static NSString *RNPDFGenerateAnnotationId(void)
                 NSParagraphStyleAttributeName: paragraphStyle,
             };
             [text drawInRect:CGRectInset(viewRect, 6.0f, 4.0f) withAttributes:attributes];
-        } else if ([type isEqualToString:@"highlight"] || [type isEqualToString:@"underline"] || [type isEqualToString:@"strikeout"]) {
+        } else if ([type isEqualToString:@"highlight"]) {
             NSDictionary *bounds = annotation[@"bounds"];
             CGRect viewRect = [self viewRectForNormalizedBounds:bounds page:page];
             if (CGRectIsEmpty(viewRect)) {
@@ -2137,15 +2192,6 @@ static NSString *RNPDFGenerateAnnotationId(void)
             UIColor *fillColor = [self colorForAnnotationType:type style:annotation[@"style"]];
             CGContextSetFillColorWithColor(context, fillColor.CGColor);
             CGContextFillRect(context, viewRect);
-
-            if ([type isEqualToString:@"underline"] || [type isEqualToString:@"strikeout"]) {
-                CGContextSetStrokeColorWithColor(context, fillColor.CGColor);
-                CGContextSetLineWidth(context, MAX(1.0f, viewRect.size.height * 0.15f));
-                CGFloat y = [type isEqualToString:@"underline"] ? CGRectGetMaxY(viewRect) - 2.0f : CGRectGetMidY(viewRect);
-                CGContextMoveToPoint(context, CGRectGetMinX(viewRect), y);
-                CGContextAddLineToPoint(context, CGRectGetMaxX(viewRect), y);
-                CGContextStrokePath(context);
-            }
         }
     }
 
@@ -2163,7 +2209,7 @@ static NSString *RNPDFGenerateAnnotationId(void)
         @"page": @([_pdfDocument indexForPage:page] + 1),
         @"type": @"ink",
         @"points": [NSMutableArray array],
-        @"style": @{@"color": @"#111111", @"thickness": @(2.0f)}
+        @"style": @{@"color": _annotationInkColor ?: @"#111111", @"thickness": @(_annotationInkThickness > 0 ? _annotationInkThickness : 2.0f)}
     } mutableCopy];
 
     [_draftAnnotations addObject:annotation];
@@ -2206,7 +2252,7 @@ static NSString *RNPDFGenerateAnnotationId(void)
     NSMutableDictionary *annotation = [@{
         @"id": [self nextLocalAnnotationId],
         @"page": @([_pdfDocument indexForPage:page] + 1),
-        @"type": type ?: @"highlight",
+        @"type": @"highlight",
         @"bounds": @{@"x": @(normalizedPoint.x), @"y": @(normalizedPoint.y), @"width": @0, @"height": @0},
         @"style": @{}
     } mutableCopy];

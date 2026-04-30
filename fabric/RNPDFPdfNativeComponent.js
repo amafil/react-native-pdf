@@ -35,6 +35,8 @@
   annotationTool: ?string,
   annotationEditable: ?boolean,
   annotationIdMode: ?string,
+  annotationInkColor: ?string,
+  annotationInkThickness: ?Float,
    onChange: ?BubblingEventHandler<ChangeEvent>,
    singlePage: ?boolean,
  |}>;
@@ -55,10 +57,16 @@
   +saveAnnotations: (
     viewRef: React.ElementRef<ComponentType>,
   ) => void;
+  +deleteSelectedAnnotation: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
+  +deleteAllAnnotations: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
-  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll', 'saveAnnotations'],
+  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll', 'saveAnnotations', 'deleteSelectedAnnotation', 'deleteAllAnnotations'],
 });
 
  export default codegenNativeComponent<NativeProps>('RNPDFPdfView');

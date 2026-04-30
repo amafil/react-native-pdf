@@ -23,6 +23,11 @@ import PdfViewNativeComponent, {
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import {ViewPropTypes} from 'deprecated-react-native-prop-types';
 const SHA1 = require('crypto-js/sha1');
+import {
+        joinAnnotationMessagePayload,
+        parseAnnotationMessagePayload,
+        stringifyAnnotationDocument,
+} from './annotationDocumentUtils';
 import PdfView from './PdfView';
 
 export default class Pdf extends Component {
@@ -59,9 +64,11 @@ export default class Pdf extends Component {
         singlePage: PropTypes.bool,
         annotations: PropTypes.object,
         annotationMode: PropTypes.bool,
-        annotationTool: PropTypes.oneOf(['select', 'ink', 'text', 'highlight', 'underline', 'strikeout']),
+        annotationTool: PropTypes.oneOf(['select', 'ink', 'text', 'highlight']),
         annotationEditable: PropTypes.bool,
         annotationIdMode: PropTypes.oneOf(['auto', 'manual']),
+        annotationInkColor: PropTypes.string,
+        annotationInkThickness: PropTypes.number,
         onLoadComplete: PropTypes.func,
         onPageChanged: PropTypes.func,
         onError: PropTypes.func,
@@ -106,6 +113,8 @@ export default class Pdf extends Component {
         annotationTool: 'select',
         annotationEditable: true,
         annotationIdMode: 'auto',
+        annotationInkColor: '#111111',
+        annotationInkThickness: 2,
         onLoadProgress: (percent) => {
         },
         onLoadComplete: (numberOfPages, path) => {
@@ -423,6 +432,34 @@ export default class Pdf extends Component {
         });
     }
 
+    deleteSelectedAnnotation() {
+        this._dispatchAnnotationCommand('deleteSelectedAnnotation', PdfViewCommands.deleteSelectedAnnotation);
+    }
+
+    deleteAllAnnotations() {
+        this._dispatchAnnotationCommand('deleteAllAnnotations', PdfViewCommands.deleteAllAnnotations);
+    }
+
+    _dispatchAnnotationCommand(commandName, fabricCommand) {
+        if (!this._root) {
+            return;
+        }
+
+        if (!!global?.nativeFabricUIManager) {
+            if (fabricCommand) {
+                fabricCommand(this._root);
+            }
+            return;
+        }
+
+        const ReactNative = require('react-native');
+        ReactNative.UIManager.dispatchViewManagerCommand(
+            ReactNative.findNodeHandle(this._root),
+            commandName,
+            [],
+        );
+    }
+
     startAutoScroll( dpPerSecond = 15, resumeDelay = 3000 ) {
         this._isAutoScrollActive = true;
         if (!!global?.nativeFabricUIManager) {
@@ -517,24 +554,17 @@ export default class Pdf extends Component {
                 this._isAutoScrollActive = false;
                 this.props.onAutoScrollEnd && this.props.onAutoScrollEnd();
             } else if (message[0] === 'annotationSaveComplete') {
-                message[1] = message.slice(1).join('|');
-
-                let annotationDocument;
-                try {
-                    annotationDocument = message[1] ? JSON.parse(message[1]) : null;
-                } catch (e) {
-                    annotationDocument = message[1];
-                }
+                const annotationDocument = parseAnnotationMessagePayload(message);
 
                 if (this._annotationSavePromise) {
                     this._annotationSavePromise.resolve(annotationDocument);
                     this._annotationSavePromise = null;
                 }
             } else if (message[0] === 'annotationSaveError') {
-                message[1] = message.slice(1).join('|');
+                const annotationError = joinAnnotationMessagePayload(message);
 
                 if (this._annotationSavePromise) {
-                    this._annotationSavePromise.reject(new Error(message[1] || 'Annotation save failed'));
+                    this._annotationSavePromise.reject(new Error(annotationError || 'Annotation save failed'));
                     this._annotationSavePromise = null;
                 }
             }
@@ -549,16 +579,7 @@ export default class Pdf extends Component {
     };
 
     _getNativeAnnotations = () => {
-        if (!this.props.annotations) {
-            return null;
-        }
-
-        try {
-            return JSON.stringify(this.props.annotations);
-        } catch (error) {
-            this._onError(error);
-            return null;
-        }
+        return stringifyAnnotationDocument(this.props.annotations, this._onError);
     };
 
     render() {

@@ -26,7 +26,7 @@ export type Source = {
 
 export type AnnotationRotation = 0 | 90 | 180 | 270;
 export type AnnotationIdMode = 'auto' | 'manual';
-export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight' | 'underline' | 'strikeout';
+export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight';
 export type AnnotationTextAlign = 'left' | 'center' | 'right';
 
 export type AnnotationPoint = {
@@ -73,7 +73,7 @@ export type TextAnnotation = AnnotationBase & {
 };
 
 export type MarkupAnnotation = AnnotationBase & {
-  type: 'highlight' | 'underline' | 'strikeout',
+  type: 'highlight',
   bounds: AnnotationBounds,
   style?: AnnotationStyle,
 };
@@ -100,6 +100,8 @@ export type Props = {
   annotationTool?: AnnotationTool,
   annotationEditable?: boolean,
   annotationIdMode?: AnnotationIdMode,
+  annotationInkColor?: string,
+  annotationInkThickness?: number,
   enableAnnotationRendering?: boolean,
   enableAntialiasing?: boolean,
   enablePaging?: boolean,
@@ -132,4 +134,6 @@ export type Props = {
 declare export default class Pdf extends Component<Props> {
   setPage: (pageNumber: number) => void;
   saveAnnotations: () => Promise<AnnotationDocument>;
+  deleteSelectedAnnotation: () => void;
+  deleteAllAnnotations: () => void;
 }

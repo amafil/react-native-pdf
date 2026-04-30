@@ -54,6 +54,8 @@ UIView
 @property(nonatomic, strong) NSString *annotationTool;
 @property(nonatomic) BOOL annotationEditable;
 @property(nonatomic, strong) NSString *annotationIdMode;
+@property(nonatomic, strong) NSString *annotationInkColor;
+@property(nonatomic) float annotationInkThickness;
 @property(nonatomic) int fitPolicy;
 @property(nonatomic) int spacing;
 @property(nonatomic, strong) NSString *password;
@@ -62,6 +64,8 @@ UIView
 @property(nonatomic, copy) RCTBubblingEventBlock onChange;
 
 - (void)saveAnnotations;
+- (void)deleteSelectedAnnotation;
+- (void)deleteAllAnnotations;
 
 @property(nonatomic, strong) NSString *selectedText;
 @property(nonatomic) BOOL enableTextSelection;

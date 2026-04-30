@@ -29,7 +29,7 @@ export type Source = {
 
 export type AnnotationRotation = 0 | 90 | 180 | 270;
 export type AnnotationIdMode = 'auto' | 'manual';
-export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight' | 'underline' | 'strikeout';
+export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight';
 export type AnnotationTextAlign = 'left' | 'center' | 'right';
 
 export type AnnotationPoint = {
@@ -76,7 +76,7 @@ export type TextAnnotation = AnnotationBase & {
 };
 
 export type MarkupAnnotation = AnnotationBase & {
-    type: 'highlight' | 'underline' | 'strikeout',
+    type: 'highlight',
     bounds: AnnotationBounds,
     style?: AnnotationStyle,
 };
@@ -120,11 +120,34 @@ export interface PdfProps {
     enableRTL?: boolean,
     enableAnnotationRendering?: boolean,
     enableDoubleTapZoom?: boolean;
+    /**
+     * Initial annotation document to render in the overlay.
+     */
     annotations?: AnnotationDocument,
+    /**
+     * Enable annotation editing mode.
+     */
     annotationMode?: boolean,
+    /**
+     * Active tool used while annotation editing is enabled.
+     */
     annotationTool?: AnnotationTool,
+    /**
+     * Allow in-place annotation edits.
+     */
     annotationEditable?: boolean,
+    /**
+     * Controls how annotation IDs are generated and preserved.
+     */
     annotationIdMode?: AnnotationIdMode,
+    /**
+     * Default color applied to newly created ink annotations.
+     */
+    annotationInkColor?: string,
+    /**
+     * Default thickness applied to newly created ink annotations.
+     */
+    annotationInkThickness?: number,
     /**
      * Only works on iOS. Defaults to `true`.
      */
@@ -151,7 +174,18 @@ export interface PdfProps {
 
 export interface PdfRef {
     setPage(pageNumber: number): void
+    /**
+     * Resolves with the current annotation document serialized by native code.
+     */
     saveAnnotations(): Promise<AnnotationDocument>
+    /**
+     * Deletes the currently selected custom annotation.
+     */
+    deleteSelectedAnnotation(): void
+    /**
+     * Deletes all custom annotations in the current overlay draft.
+     */
+    deleteAllAnnotations(): void
     /**
      * Start smooth automatic vertical scrolling using the display refresh rate.
      * @param dpPerSecond - Scroll speed in density-independent pixels (dp) per second (default: 15). Produces consistent physical speed across screen densities.

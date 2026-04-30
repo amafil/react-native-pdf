@@ -51,6 +51,8 @@ RCT_EXPORT_VIEW_PROPERTY(annotationMode, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(annotationTool, NSString);
 RCT_EXPORT_VIEW_PROPERTY(annotationEditable, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(annotationIdMode, NSString);
+RCT_EXPORT_VIEW_PROPERTY(annotationInkColor, NSString);
+RCT_EXPORT_VIEW_PROPERTY(annotationInkThickness, float);
 RCT_EXPORT_VIEW_PROPERTY(fitPolicy, int);
 RCT_EXPORT_VIEW_PROPERTY(spacing, int);
 RCT_EXPORT_VIEW_PROPERTY(password, NSString);
@@ -87,6 +89,26 @@ RCT_EXPORT_METHOD(saveAnnotations:(nonnull NSNumber *)reactTag)
         RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
         if ([view isKindOfClass:[RNPDFPdfView class]]) {
             [view saveAnnotations];
+        }
+    }];
+}
+
+RCT_EXPORT_METHOD(deleteSelectedAnnotation:(nonnull NSNumber *)reactTag)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
+        if ([view isKindOfClass:[RNPDFPdfView class]]) {
+            [view deleteSelectedAnnotation];
+        }
+    }];
+}
+
+RCT_EXPORT_METHOD(deleteAllAnnotations:(nonnull NSNumber *)reactTag)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
+        if ([view isKindOfClass:[RNPDFPdfView class]]) {
+            [view deleteAllAnnotations];
         }
     }];
 }

@@ -77,6 +77,12 @@ public class RNPDFPdfViewManagerDelegate<T extends View, U extends BaseViewManag
       case "annotationIdMode":
         mViewManager.setAnnotationIdMode(view, value == null ? null : (String) value);
         break;
+      case "annotationInkColor":
+        mViewManager.setAnnotationInkColor(view, value == null ? null : (String) value);
+        break;
+      case "annotationInkThickness":
+        mViewManager.setAnnotationInkThickness(view, value == null ? 0f : ((Double) value).floatValue());
+        break;
       case "enableAntialiasing":
         mViewManager.setEnableAntialiasing(view, value == null ? false : (boolean) value);
         break;
@@ -104,6 +110,12 @@ public class RNPDFPdfViewManagerDelegate<T extends View, U extends BaseViewManag
         break;
       case "saveAnnotations":
         mViewManager.saveAnnotations(view);
+        break;
+      case "deleteSelectedAnnotation":
+        mViewManager.deleteSelectedAnnotation(view);
+        break;
+      case "deleteAllAnnotations":
+        mViewManager.deleteAllAnnotations(view);
         break;
     }
   }

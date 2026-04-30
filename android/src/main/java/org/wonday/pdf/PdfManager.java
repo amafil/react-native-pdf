@@ -164,6 +164,16 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
         pdfView.setAnnotationIdMode(annotationIdMode);
     }
 
+    @ReactProp(name = "annotationInkColor")
+    public void setAnnotationInkColor(PdfView pdfView, @Nullable String annotationInkColor) {
+        pdfView.setAnnotationInkColor(annotationInkColor);
+    }
+
+    @ReactProp(name = "annotationInkThickness")
+    public void setAnnotationInkThickness(PdfView pdfView, float annotationInkThickness) {
+        pdfView.setAnnotationInkThickness(annotationInkThickness);
+    }
+
     @ReactProp(name = "enablePaging")
     public void setEnablePaging(PdfView pdfView, boolean enablePaging) {
         pdfView.setEnablePaging(enablePaging);
@@ -211,12 +221,26 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
             stopNativeAutoScroll(root);
         } else if ("saveAnnotations".equals(commandId)) {
             saveAnnotations(root);
+        } else if ("deleteSelectedAnnotation".equals(commandId)) {
+            deleteSelectedAnnotation(root);
+        } else if ("deleteAllAnnotations".equals(commandId)) {
+            deleteAllAnnotations(root);
         }
     }
 
     @Override
     public void saveAnnotations(PdfView view) {
         view.saveAnnotations();
+    }
+
+    @Override
+    public void deleteSelectedAnnotation(PdfView view) {
+        view.deleteSelectedAnnotation();
+    }
+
+    @Override
+    public void deleteAllAnnotations(PdfView view) {
+        view.deleteAllAnnotations();
     }
 
     @Override

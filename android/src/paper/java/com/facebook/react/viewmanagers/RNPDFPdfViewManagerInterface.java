@@ -31,6 +31,8 @@ public interface RNPDFPdfViewManagerInterface<T extends View> {
   void setAnnotationTool(T view, @Nullable String value);
   void setAnnotationEditable(T view, boolean value);
   void setAnnotationIdMode(T view, @Nullable String value);
+  void setAnnotationInkColor(T view, @Nullable String value);
+  void setAnnotationInkThickness(T view, float value);
   void setEnableAntialiasing(T view, boolean value);
   void setFitPolicy(T view, int value);
   void setSpacing(T view, int value);
@@ -38,4 +40,6 @@ public interface RNPDFPdfViewManagerInterface<T extends View> {
   void setSinglePage(T view, boolean value);
   void setNativePage(T view, int page);
   void saveAnnotations(T view);
+  void deleteSelectedAnnotation(T view);
+  void deleteAllAnnotations(T view);
 }

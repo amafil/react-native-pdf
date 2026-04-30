@@ -97,6 +97,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private String annotationTool = "select";
     private boolean annotationEditable = true;
     private String annotationIdMode = "auto";
+    private String annotationInkColor = "#111111";
+    private float annotationInkThickness = 2f;
     private AnnotationOverlayView annotationOverlayView;
 
     private boolean enablePaging = false;
@@ -494,6 +496,16 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         updateAnnotationOverlayConfig();
     }
 
+    public void setAnnotationInkColor(String annotationInkColor) {
+        this.annotationInkColor = TextUtils.isEmpty(annotationInkColor) ? "#111111" : annotationInkColor;
+        updateAnnotationOverlayConfig();
+    }
+
+    public void setAnnotationInkThickness(float annotationInkThickness) {
+        this.annotationInkThickness = annotationInkThickness > 0f ? annotationInkThickness : 2f;
+        updateAnnotationOverlayConfig();
+    }
+
     public void setPath(String path) {
         this.path = path;
     }
@@ -594,7 +606,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 this.annotationTool,
                 this.annotationEditable,
                 this.annotationIdMode,
-                isAnnotationEditingSupported()
+                isAnnotationEditingSupported(),
+                this.annotationInkColor,
+                this.annotationInkThickness
             );
         }
     }
@@ -622,6 +636,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         private boolean editable = true;
         private String idMode = "auto";
         private boolean supported = true;
+        private String inkColor = "#111111";
+        private float inkThickness = 2f;
 
         AnnotationOverlayView(Context context) {
             super(context);
@@ -631,12 +647,14 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         }
 
-        void setConfiguration(boolean annotationMode, String annotationTool, boolean annotationEditable, String annotationIdMode, boolean annotationEditingSupported) {
+        void setConfiguration(boolean annotationMode, String annotationTool, boolean annotationEditable, String annotationIdMode, boolean annotationEditingSupported, String annotationInkColor, float annotationInkThickness) {
             annotationModeEnabled = annotationMode;
-            tool = annotationTool == null ? "select" : annotationTool;
+            tool = normalizeAnnotationType(annotationTool == null ? "select" : annotationTool);
             editable = annotationEditable;
             idMode = annotationIdMode == null ? "auto" : annotationIdMode;
             supported = annotationEditingSupported;
+            inkColor = TextUtils.isEmpty(annotationInkColor) ? "#111111" : annotationInkColor;
+            inkThickness = annotationInkThickness > 0f ? annotationInkThickness : 2f;
 
             if (!annotationModeEnabled || !editable || !supported) {
                 commitTextEditingIfNeeded();
@@ -646,6 +664,21 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 clearSelectionInteraction();
             }
 
+            invalidate();
+        }
+
+        void deleteSelectedAnnotation() {
+            JSONObject selectedAnnotation = getSelectedAnnotation();
+            if (selectedAnnotation != null) {
+                deleteAnnotation(selectedAnnotation);
+            }
+        }
+
+        void deleteAllAnnotations() {
+            commitTextEditingIfNeeded();
+            draftAnnotations.clear();
+            selectedAnnotationId = null;
+            clearSelectionInteraction();
             invalidate();
         }
 
@@ -677,6 +710,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     }
 
                     JSONObject annotation = new JSONObject(source.toString());
+                    String type = normalizeAnnotationType(annotation.optString("type", null));
+                    if (!TextUtils.isEmpty(type)) {
+                        annotation.put("type", type);
+                    }
                     if (!annotation.has("id")) {
                         annotation.put("id", nextLocalAnnotationId());
                     }
@@ -764,7 +801,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     endInk();
                     return true;
                 }
-            } else if ("highlight".equals(currentTool) || "underline".equals(currentTool) || "strikeout".equals(currentTool)) {
+            } else if ("highlight".equals(currentTool)) {
                 if (action == MotionEvent.ACTION_DOWN) {
                     AnnotationHit hit = hitTest(event.getX(), event.getY());
                     if (hit == null) {
@@ -813,7 +850,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     continue;
                 }
 
-                String type = annotation.optString("type", "");
+                String type = normalizeAnnotationType(annotation.optString("type", ""));
                 RectF rect = viewRectForAnnotation(annotation, pageIndex);
                 if (rect == null && !"ink".equals(type)) {
                     continue;
@@ -864,17 +901,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     textPaint.setTextAlign(Paint.Align.LEFT);
                     String text = annotation.optString("text", "");
                     canvas.drawText(text, rect.left + 8f, rect.top + Math.max(20f, textPaint.getTextSize() + 6f), textPaint);
-                } else if ("highlight".equals(type) || "underline".equals(type) || "strikeout".equals(type)) {
+                } else if ("highlight".equals(type)) {
                     fillPaint.setColor(annotationColor(annotation, annotationFillColor(type)));
                     canvas.drawRect(rect, fillPaint);
-
-                    if ("underline".equals(type) || "strikeout".equals(type)) {
-                        strokePaint.setStyle(Paint.Style.STROKE);
-                        strokePaint.setStrokeWidth(Math.max(1f, rect.height() * 0.15f));
-                        strokePaint.setColor(annotationColor(annotation, annotationFillColor(type)));
-                        float y = "underline".equals(type) ? rect.bottom - 2f : rect.centerY();
-                        canvas.drawLine(rect.left, y, rect.right, y, strokePaint);
-                    }
                 }
             }
 
@@ -895,19 +924,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 selectAnnotation(hit.annotation);
                 activeSelectionAnnotation = hit.annotation;
                 activeSelectionHandle = hit.hitPart;
-                activeSelectionMode = "delete".equals(hit.hitPart) ? "delete" : ("resize".equals(hit.hitPart) ? "resize" : "move");
+                activeSelectionMode = "resize".equals(hit.hitPart) ? "resize" : "move";
                 activeSelectionPageIndex = hit.pageIndex;
                 activeSelectionStartBounds = normalizedBoundsForAnnotation(hit.annotation);
                 activeSelectionStartPoints = copyPointsForAnnotation(hit.annotation);
                 activeSelectionDownX = event.getX();
                 activeSelectionDownY = event.getY();
                 activeSelectionHasMoved = false;
-
-                if ("delete".equals(activeSelectionMode)) {
-                    deleteAnnotation(hit.annotation);
-                    clearSelectionInteraction();
-                    return true;
-                }
 
                 return true;
             }
@@ -972,13 +995,11 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
             canvas.drawRoundRect(rect, 4f, 4f, outlinePaint);
 
-            RectF deleteHandle = deleteHandleRect(rect);
-            fillPaint.setColor(Color.argb(235, 210, 48, 48));
-            canvas.drawOval(deleteHandle, fillPaint);
-
-            RectF resizeHandle = resizeHandleRect(rect);
-            fillPaint.setColor(Color.argb(235, 34, 68, 170));
-            canvas.drawRoundRect(resizeHandle, 2f, 2f, fillPaint);
+            if (annotationSupportsResize(annotation)) {
+                RectF resizeHandle = resizeHandleRect(rect);
+                fillPaint.setColor(Color.argb(235, 34, 68, 170));
+                canvas.drawRoundRect(resizeHandle, 2f, 2f, fillPaint);
+            }
         }
 
         private void clearSelectionInteraction() {
@@ -1212,11 +1233,6 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
         }
 
-        private RectF deleteHandleRect(RectF rect) {
-            float size = Math.max(18f, Math.min(rect.width(), rect.height()) * 0.18f);
-            return new RectF(rect.right - size, rect.top - size, rect.right, rect.top);
-        }
-
         private RectF resizeHandleRect(RectF rect) {
             float size = Math.max(18f, Math.min(rect.width(), rect.height()) * 0.18f);
             return new RectF(rect.right - size, rect.bottom - size, rect.right, rect.bottom);
@@ -1246,12 +1262,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 }
 
                 String hitPart = "body";
-                if (includeHandles && selectedAnnotationId != null && selectedAnnotationId.equals(annotation.optString("id", null))) {
-                    if (deleteHandleRect(rect).contains(x, y)) {
-                        hitPart = "delete";
-                    } else if (resizeHandleRect(rect).contains(x, y)) {
-                        hitPart = "resize";
-                    }
+                if (includeHandles && selectedAnnotationId != null && selectedAnnotationId.equals(annotation.optString("id", null)) && annotationSupportsResize(annotation) && resizeHandleRect(rect).contains(x, y)) {
+                    hitPart = "resize";
                 }
 
                 return new AnnotationSelectionHit(annotation, pageIndex, rect, hitPart);
@@ -1282,8 +1294,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 annotation.put("type", "ink");
                 annotation.put("points", new JSONArray());
                 JSONObject style = new JSONObject();
-                style.put("color", "#111111");
-                style.put("thickness", 2.0f);
+                style.put("color", inkColor);
+                style.put("thickness", inkThickness);
                 annotation.put("style", style);
                 draftAnnotations.add(annotation);
                 activeInkAnnotation = annotation;
@@ -1325,7 +1337,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 JSONObject annotation = new JSONObject();
                 annotation.put("id", nextLocalAnnotationId());
                 annotation.put("page", hit.pageIndex + 1);
-                annotation.put("type", type);
+                annotation.put("type", normalizeAnnotationType(type));
                 annotation.put("bounds", new JSONObject().put("x", markupStartNormalized.x).put("y", markupStartNormalized.y).put("width", 0).put("height", 0));
                 annotation.put("style", new JSONObject());
                 draftAnnotations.add(annotation);
@@ -1590,6 +1602,19 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             return style == null ? new JSONObject() : style;
         }
 
+        private String normalizeAnnotationType(String type) {
+            if ("underline".equals(type) || "strikeout".equals(type)) {
+                return "highlight";
+            }
+
+            return type;
+        }
+
+        private boolean annotationSupportsResize(JSONObject annotation) {
+            String type = normalizeAnnotationType(annotation.optString("type", ""));
+            return "text".equals(type) || "highlight".equals(type);
+        }
+
         private int annotationColor(JSONObject annotation, int fallback) {
             String color = styleFor(annotation).optString("color", null);
             if (TextUtils.isEmpty(color)) {
@@ -1604,14 +1629,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         private int annotationFillColor(String type) {
-            if ("highlight".equals(type)) {
+            if ("highlight".equals(type) || "underline".equals(type) || "strikeout".equals(type)) {
                 return Color.argb(90, 255, 230, 60);
-            }
-            if ("underline".equals(type)) {
-                return Color.argb(120, 50, 120, 255);
-            }
-            if ("strikeout".equals(type)) {
-                return Color.argb(120, 255, 50, 50);
             }
 
             return Color.BLACK;
@@ -1698,6 +1717,18 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         notifyOnChangeWithMessage("annotationSaveError|Annotation overlay unavailable");
+    }
+
+    public void deleteSelectedAnnotation() {
+        if (annotationOverlayView != null) {
+            annotationOverlayView.deleteSelectedAnnotation();
+        }
+    }
+
+    public void deleteAllAnnotations() {
+        if (annotationOverlayView != null) {
+            annotationOverlayView.deleteAllAnnotations();
+        }
     }
 
     private void showLog(final String str) {
