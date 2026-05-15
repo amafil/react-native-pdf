@@ -409,6 +409,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         this.enableDoubleTapZoom = enableDoubleTapZoom;
     }
 
+    public void cleanup() {
+        stopAutoScroll();
+        if (!this.isRecycled()) {
+            this.recycle();
+        }
+    }
+
     public void setPath(String path) {
         this.path = path;
     }
