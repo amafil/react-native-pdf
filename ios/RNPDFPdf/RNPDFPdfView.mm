@@ -75,6 +75,17 @@ const float MIN_SCALE = 1.0f;
     UIPinchGestureRecognizer *_pinchRecognizer;
     UILongPressGestureRecognizer *_longPressRecognizer;
     UITapGestureRecognizer *_doubleTapEmptyRecognizer;
+
+    // Autoscroll
+    CADisplayLink *_displayLink;
+    NSTimer *_autoScrollResumeTimer;
+    CGFloat _autoScrollPixels;        // points per second (dp maps 1:1 to iOS points)
+    NSTimeInterval _autoScrollResumeDelay;
+    BOOL _isAutoScrolling;
+    BOOL _isUserDragging;
+    UIScrollView *_pdfScrollView;
+    __weak id<UIScrollViewDelegate> _originalScrollDelegate;
+    CGFloat _autoScrollCurrentOffset; // float accumulator – avoids re-reading UIKit's quantized contentOffset
 }
 
 #ifdef RCT_NEW_ARCH_ENABLED
@@ -190,6 +201,10 @@ using namespace facebook::react;
 {
     [super prepareForRecycle];
 
+    [self stopAutoScroll];
+    _pdfScrollView = nil;
+    _originalScrollDelegate = nil;
+
     [_pdfView removeFromSuperview];
     _pdfDocument = Nil;
     _pdfView = Nil;
@@ -232,6 +247,16 @@ using namespace facebook::react;
 {
     _page = page;
     [self didSetProps:[NSArray arrayWithObject:@"page"]];
+}
+
+- (void)startNativeAutoScroll:(double)pixels resumeDelay:(double)resumeDelay
+{
+    [self startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)(resumeDelay / 1000.0)];
+}
+
+- (void)stopNativeAutoScroll
+{
+    [self stopAutoScroll];
 }
 
 #endif
@@ -279,6 +304,15 @@ using namespace facebook::react;
     _fixScaleFactor = -1.0f;
     _initialed = NO;
     _changedProps = NULL;
+
+    // Autoscroll defaults
+    _autoScrollPixels = 15.0f;   // dp/sec
+    _autoScrollResumeDelay = 3.0;
+    _isAutoScrolling = NO;
+    _isUserDragging = NO;
+    _pdfScrollView = nil;
+    _originalScrollDelegate = nil;
+    _autoScrollCurrentOffset = 0.0;
 
     [self addSubview:_pdfView];
 
@@ -599,6 +633,8 @@ using namespace facebook::react;
 }
 
 - (void)dealloc{
+
+    [self stopAutoScroll];
 
     _pdfDocument = Nil;
     _pdfView = Nil;
@@ -947,6 +983,159 @@ using namespace facebook::react;
     
     for (UIView *subview in view.subviews) {
         [self setScrollIndicators:subview horizontal:horizontal vertical:vertical depth:depth + 1];
+    }
+}
+
+#pragma mark - Autoscroll
+
+- (UIScrollView *)findPdfScrollView
+{
+    if (_pdfScrollView) return _pdfScrollView;
+    for (UIView *subview in _pdfView.subviews) {
+        if ([subview isKindOfClass:[UIScrollView class]]) {
+            _pdfScrollView = (UIScrollView *)subview;
+            _originalScrollDelegate = _pdfScrollView.delegate;
+            _pdfScrollView.delegate = self;
+            return _pdfScrollView;
+        }
+    }
+    return nil;
+}
+
+- (void)startAutoScroll:(CGFloat)dpPerSecond resumeDelay:(NSTimeInterval)resumeDelay
+{
+    // dp maps 1:1 to iOS points (both are ~160 dpi logical units)
+    _autoScrollPixels = dpPerSecond;
+    _autoScrollResumeDelay = resumeDelay;
+    _isAutoScrolling = YES;
+
+    UIScrollView *sv = [self findPdfScrollView];
+    // Capture the current scroll position into our float accumulator so that
+    // displayLinkTick never reads back UIKit's pixel-quantized contentOffset.
+    if (sv) {
+        _autoScrollCurrentOffset = sv.contentOffset.y;
+    }
+    [self startDisplayLink];
+}
+
+- (void)stopAutoScroll
+{
+    _isAutoScrolling = NO;
+    [self stopDisplayLink];
+    [_autoScrollResumeTimer invalidate];
+    _autoScrollResumeTimer = nil;
+}
+
+- (void)startDisplayLink
+{
+    [_displayLink invalidate];
+    _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkTick:)];
+    [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopDisplayLink
+{
+    [_displayLink invalidate];
+    _displayLink = nil;
+}
+
+- (void)displayLinkTick:(CADisplayLink *)link
+{
+    UIScrollView *scrollView = [self findPdfScrollView];
+    if (!scrollView || _isUserDragging) return;
+
+    // Frame-rate-independent: use actual elapsed frame time (e.g. 1/60 or 1/120 on ProMotion)
+    CGFloat frameDuration = (CGFloat)(link.targetTimestamp - link.timestamp);
+
+    // Accumulate into our own float – do NOT read contentOffset back from UIKit.
+    // UIKit / PDFKit quantises contentOffset to physical pixel boundaries (1/scale pts
+    // on Retina displays). If we re-read that quantised value every frame we lose the
+    // fractional part, making scrollSpeeds below ~20 px/s invisible on @3x devices.
+    _autoScrollCurrentOffset += _autoScrollPixels * frameDuration;
+
+    CGFloat maxOffsetY = scrollView.contentSize.height - scrollView.bounds.size.height;
+    if (maxOffsetY <= 0) {
+        [self stopAutoScroll];
+        [self notifyOnChangeWithMessage:@"autoScrollEnd"];
+        return;
+    }
+
+    if (_autoScrollCurrentOffset >= maxOffsetY) {
+        [scrollView setContentOffset:CGPointMake(scrollView.contentOffset.x, maxOffsetY) animated:NO];
+        [self stopAutoScroll];
+        [self notifyOnChangeWithMessage:@"autoScrollEnd"];
+        return;
+    }
+
+    [scrollView setContentOffset:CGPointMake(scrollView.contentOffset.x, _autoScrollCurrentOffset) animated:NO];
+}
+
+- (void)scheduleAutoScrollResume
+{
+    [_autoScrollResumeTimer invalidate];
+    _autoScrollResumeTimer = [NSTimer scheduledTimerWithTimeInterval:_autoScrollResumeDelay
+                                                             target:self
+                                                           selector:@selector(autoScrollResumeFromTimer:)
+                                                           userInfo:nil
+                                                            repeats:NO];
+}
+
+- (void)autoScrollResumeFromTimer:(NSTimer *)timer
+{
+    if (_isAutoScrolling && !_isUserDragging) {
+        // Re-sync the float accumulator with the actual scroll position after
+        // the user may have scrolled manually during the pause.
+        if (_pdfScrollView) {
+            _autoScrollCurrentOffset = _pdfScrollView.contentOffset.y;
+        }
+        [self startDisplayLink];
+    }
+}
+
+#pragma mark - UIScrollViewDelegate (autoscroll pause/resume)
+
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
+{
+    _isUserDragging = YES;
+    [self stopDisplayLink];
+    [_autoScrollResumeTimer invalidate];
+    _autoScrollResumeTimer = nil;
+
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewWillBeginDragging:)]) {
+        [_originalScrollDelegate scrollViewWillBeginDragging:scrollView];
+    }
+}
+
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate
+{
+    if (!decelerate) {
+        _isUserDragging = NO;
+        if (_isAutoScrolling) {
+            [self scheduleAutoScrollResume];
+        }
+    }
+
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidEndDragging:willDecelerate:)]) {
+        [_originalScrollDelegate scrollViewDidEndDragging:scrollView willDecelerate:decelerate];
+    }
+}
+
+- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView
+{
+    _isUserDragging = NO;
+    if (_isAutoScrolling) {
+        [self scheduleAutoScrollResume];
+    }
+
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidEndDecelerating:)]) {
+        [_originalScrollDelegate scrollViewDidEndDecelerating:scrollView];
+    }
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+{
+    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidScroll:)]) {
+        [_originalScrollDelegate scrollViewDidScroll:scrollView];
     }
 }
 

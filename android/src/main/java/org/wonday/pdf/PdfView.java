@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.SizeF;
+import android.view.Choreographer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.util.Log;
@@ -53,7 +54,6 @@ import com.facebook.react.uimanager.UIManagerModule;
 import com.facebook.react.uimanager.events.EventDispatcher;
 import com.facebook.react.uimanager.events.Event;
 import com.facebook.react.uimanager.events.RCTEventEmitter;
-
 
 import static java.lang.String.format;
 
@@ -94,9 +94,40 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private int oldW = 0;
     private int oldH = 0;
 
+    // Autoscroll
+    private Choreographer.FrameCallback autoScrollFrameCallback;
+    private Runnable autoScrollResumeRunnable;
+    private Handler autoScrollResumeHandler;
+    private boolean isAutoScrolling = false;
+    private boolean isUserTouching = false;
+    private float autoScrollPixels = 15f;   // pixels per second
+    private long autoScrollResumeDelay = 3000L;
+    private long lastFrameTimeNanos = 0;
+    private float accumulatedScrollOffset = 0f; // float accumulator – avoids re-reading the rendering-quantised offset
+
     public PdfView(Context context, AttributeSet set){
         super(context, set);
         ConfigKt.setPdfiumConfig(new Config(new DefaultLogger(), AlreadyClosedBehavior.IGNORE));
+        autoScrollResumeHandler = new Handler(Looper.getMainLooper());
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            isUserTouching = true;
+            if (isAutoScrolling && autoScrollFrameCallback != null) {
+                Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
+                autoScrollResumeHandler.removeCallbacks(autoScrollResumeRunnable);
+                lastFrameTimeNanos = 0;
+            }
+        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            isUserTouching = false;
+            if (isAutoScrolling) {
+                scheduleAutoScrollResume();
+            }
+        }
+        return super.dispatchTouchEvent(event);
     }
 
     @Override
@@ -378,6 +409,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         this.enableDoubleTapZoom = enableDoubleTapZoom;
     }
 
+    public void cleanup() {
+        stopAutoScroll();
+        if (!this.isRecycled()) {
+            this.recycle();
+        }
+    }
+
     public void setPath(String path) {
         this.path = path;
     }
@@ -543,6 +581,121 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 View child = vg.getChildAt(i);
                 setTouchesEnabled(child, enabled);
             }
+        }
+    }
+
+    // Autoscroll methods
+
+    public void startAutoScroll(float dpPerSecond, long resumeDelayMs) {
+        // Convert dp to physical pixels so scroll speed is consistent across screen densities
+        float density = getResources().getDisplayMetrics().density;
+        this.autoScrollPixels = dpPerSecond * density;
+        this.autoScrollResumeDelay = resumeDelayMs;
+        this.isAutoScrolling = true;
+        this.lastFrameTimeNanos = 0;
+        // Capture current position into float accumulator so doFrame never reads back
+        // the rendering-quantised offset from getCurrentYOffset().
+        this.accumulatedScrollOffset = -getCurrentYOffset(); // getCurrentYOffset() is negative
+
+        if (autoScrollFrameCallback == null) {
+            autoScrollFrameCallback = new Choreographer.FrameCallback() {
+                @Override
+                public void doFrame(long frameTimeNanos) {
+                    if (!isAutoScrolling || isUserTouching) {
+                        lastFrameTimeNanos = 0;
+                        return;
+                    }
+
+                    // Skip first frame to establish baseline timestamp
+                    if (lastFrameTimeNanos == 0) {
+                        lastFrameTimeNanos = frameTimeNanos;
+                        Choreographer.getInstance().postFrameCallback(this);
+                        return;
+                    }
+
+                    float elapsedSeconds = (frameTimeNanos - lastFrameTimeNanos) / 1_000_000_000f;
+                    lastFrameTimeNanos = frameTimeNanos;
+
+                    // Accumulate into our own float – do NOT read getCurrentYOffset() back.
+                    // barteksc may snap the rendered position to pixel boundaries; re-reading
+                    // that snapped value each frame loses the fractional part and makes low
+                    // speeds (< ~20 px/s) invisible.
+                    accumulatedScrollOffset += autoScrollPixels * elapsedSeconds;
+
+                    float totalHeight = 0;
+                    int pageCount = getPageCount();
+                    for (int i = 0; i < pageCount; i++) {
+                        totalHeight += getPageSize(i).getHeight() * getZoom();
+                    }
+                    totalHeight += spacing * (pageCount - 1) * getZoom();
+                    float maxScroll = totalHeight - getHeight();
+
+                    if (maxScroll <= 0) {
+                        stopAutoScroll();
+                        dispatchAutoScrollEndEvent();
+                        return;
+                    }
+
+                    if (accumulatedScrollOffset >= maxScroll) {
+                        moveTo(0, -maxScroll);
+                        stopAutoScroll();
+                        dispatchAutoScrollEndEvent();
+                        return;
+                    }
+
+                    moveTo(0, -accumulatedScrollOffset);
+                    loadPages();
+                    Choreographer.getInstance().postFrameCallback(this);
+                }
+            };
+        }
+
+        if (autoScrollResumeRunnable == null) {
+            autoScrollResumeRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (isAutoScrolling && !isUserTouching) {
+                        lastFrameTimeNanos = 0;
+                        // Re-sync accumulator after user may have scrolled manually during pause.
+                        accumulatedScrollOffset = -getCurrentYOffset();
+                        Choreographer.getInstance().postFrameCallback(autoScrollFrameCallback);
+                    }
+                }
+            };
+        }
+
+        Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
+        Choreographer.getInstance().postFrameCallback(autoScrollFrameCallback);
+    }
+
+    public void stopAutoScroll() {
+        this.isAutoScrolling = false;
+        this.lastFrameTimeNanos = 0;
+        if (autoScrollFrameCallback != null) {
+            Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
+        }
+        if (autoScrollResumeHandler != null && autoScrollResumeRunnable != null) {
+            autoScrollResumeHandler.removeCallbacks(autoScrollResumeRunnable);
+        }
+    }
+
+    private void scheduleAutoScrollResume() {
+        autoScrollResumeHandler.removeCallbacks(autoScrollResumeRunnable);
+        autoScrollResumeHandler.postDelayed(autoScrollResumeRunnable, autoScrollResumeDelay);
+    }
+
+    private void dispatchAutoScrollEndEvent() {
+        WritableMap event = Arguments.createMap();
+        event.putString("message", "autoScrollEnd");
+
+        ThemedReactContext context = (ThemedReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(context, getId());
+        int surfaceId = UIManagerHelper.getSurfaceId(this);
+
+        TopChangeEvent tce = new TopChangeEvent(surfaceId, getId(), event);
+
+        if (dispatcher != null) {
+            dispatcher.dispatchEvent(tce);
         }
     }
 }
