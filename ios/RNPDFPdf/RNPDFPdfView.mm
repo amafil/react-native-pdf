@@ -53,6 +53,7 @@
 
 const float MAX_SCALE = 3.0f;
 const float MIN_SCALE = 1.0f;
+static void *RNPDFPdfScrollViewContentOffsetContext = &RNPDFPdfScrollViewContentOffsetContext;
 
 @class RNPDFAnnotationOverlay;
 
@@ -122,7 +123,8 @@ const float MIN_SCALE = 1.0f;
     BOOL _isAutoScrolling;
     BOOL _isUserDragging;
     UIScrollView *_pdfScrollView;
-    __weak id<UIScrollViewDelegate> _originalScrollDelegate;
+    UIPanGestureRecognizer *_pdfScrollPanRecognizer;
+    BOOL _isObservingPdfScrollView;
     CGFloat _autoScrollCurrentOffset; // float accumulator – avoids re-reading UIKit's quantized contentOffset
 }
 
@@ -276,8 +278,7 @@ using namespace facebook::react;
     [super prepareForRecycle];
 
     [self stopAutoScroll];
-    _pdfScrollView = nil;
-    _originalScrollDelegate = nil;
+    [self unbindPdfScrollViewObservation];
 
     [_pdfView removeFromSuperview];
     _pdfDocument = Nil;
@@ -392,7 +393,8 @@ using namespace facebook::react;
     _isAutoScrolling = NO;
     _isUserDragging = NO;
     _pdfScrollView = nil;
-    _originalScrollDelegate = nil;
+    _pdfScrollPanRecognizer = nil;
+    _isObservingPdfScrollView = NO;
     _autoScrollCurrentOffset = 0.0;
 
     [self addSubview:_pdfView];
@@ -643,22 +645,12 @@ using namespace facebook::react;
             [self setScrollIndicators:self horizontal:_showsHorizontalScrollIndicator vertical:_showsVerticalScrollIndicator depth:0];
         }
 
-        if (_pdfDocument && ([changedProps containsObject:@"path"] || [changedProps containsObject:@"scrollEnabled"])) {
-            if (_scrollEnabled) {
-                for (UIView *subview in _pdfView.subviews) {
-                    if ([subview isKindOfClass:[UIScrollView class]]) {
-                        UIScrollView *scrollView = (UIScrollView *)subview;
-                        scrollView.scrollEnabled = YES;
-                    }
-                }
-            } else {
-                for (UIView *subview in _pdfView.subviews) {
-                    if ([subview isKindOfClass:[UIScrollView class]]) {
-                        UIScrollView *scrollView = (UIScrollView *)subview;
-                        scrollView.scrollEnabled = NO;
-                    }
-                }
-            }
+        if ([changedProps containsObject:@"path"] ||
+            [changedProps containsObject:@"scrollEnabled"] ||
+            [changedProps containsObject:@"annotationMode"] ||
+            [changedProps containsObject:@"enablePaging"] ||
+            [changedProps containsObject:@"singlePage"]) {
+            [self updatePdfScrollInteractionMode];
         }
 
         if (_pdfDocument && ([changedProps containsObject:@"path"] || [changedProps containsObject:@"enablePaging"] || [changedProps containsObject:@"horizontal"] || [changedProps containsObject:@"page"])) {
@@ -700,6 +692,7 @@ using namespace facebook::react;
 
         _pdfView.backgroundColor = [UIColor clearColor];
         [_pdfView layoutDocumentView];
+        [self refreshPdfScrollViewBinding];
         [self setNeedsDisplay];
     }
 }
@@ -735,6 +728,7 @@ using namespace facebook::react;
 - (void)dealloc{
 
     [self stopAutoScroll];
+    [self unbindPdfScrollViewObservation];
 
     _pdfDocument = Nil;
     _pdfView = Nil;
@@ -1220,19 +1214,116 @@ using namespace facebook::react;
     }
 }
 
+- (void)updatePdfScrollInteractionMode
+{
+    [self refreshPdfScrollViewBinding];
+    [self applyScrollInteractionModeToView:_pdfView depth:0];
+}
+
+- (void)unbindPdfScrollViewObservation
+{
+    if (_pdfScrollPanRecognizer != nil) {
+        [_pdfScrollPanRecognizer removeTarget:self action:@selector(handlePdfScrollPanGesture:)];
+        _pdfScrollPanRecognizer = nil;
+    }
+
+    if (_isObservingPdfScrollView && _pdfScrollView != nil) {
+        [_pdfScrollView removeObserver:self forKeyPath:@"contentOffset" context:RNPDFPdfScrollViewContentOffsetContext];
+        _isObservingPdfScrollView = NO;
+    }
+
+    _pdfScrollView = nil;
+}
+
+- (UIScrollView *)preferredPdfScrollViewInView:(UIView *)view depth:(int)depth
+{
+    if (view == nil || depth > 10) {
+        return nil;
+    }
+
+    UIScrollView *bestScrollView = nil;
+    CGFloat bestScrollableExtent = 0.0f;
+
+    if ([view isKindOfClass:[UIScrollView class]]) {
+        UIScrollView *scrollView = (UIScrollView *)view;
+        CGFloat verticalOverflow = MAX(scrollView.contentSize.height - scrollView.bounds.size.height, 0.0f);
+        CGFloat horizontalOverflow = MAX(scrollView.contentSize.width - scrollView.bounds.size.width, 0.0f);
+        bestScrollableExtent = MAX(verticalOverflow, horizontalOverflow);
+        bestScrollView = scrollView;
+    }
+
+    for (UIView *subview in view.subviews) {
+        UIScrollView *candidate = [self preferredPdfScrollViewInView:subview depth:depth + 1];
+        if (!candidate) {
+            continue;
+        }
+
+        CGFloat candidateVerticalOverflow = MAX(candidate.contentSize.height - candidate.bounds.size.height, 0.0f);
+        CGFloat candidateHorizontalOverflow = MAX(candidate.contentSize.width - candidate.bounds.size.width, 0.0f);
+        CGFloat candidateScrollableExtent = MAX(candidateVerticalOverflow, candidateHorizontalOverflow);
+        if (bestScrollView == nil || candidateScrollableExtent >= bestScrollableExtent) {
+            bestScrollView = candidate;
+            bestScrollableExtent = candidateScrollableExtent;
+        }
+    }
+
+    return bestScrollView;
+}
+
+- (void)refreshPdfScrollViewBinding
+{
+    UIScrollView *preferredScrollView = [self preferredPdfScrollViewInView:_pdfView depth:0];
+    if (preferredScrollView == _pdfScrollView) {
+        return;
+    }
+
+    [self unbindPdfScrollViewObservation];
+
+    _pdfScrollView = preferredScrollView;
+
+    if (preferredScrollView) {
+        _pdfScrollPanRecognizer = preferredScrollView.panGestureRecognizer;
+        if (_pdfScrollPanRecognizer != nil) {
+            [_pdfScrollPanRecognizer addTarget:self action:@selector(handlePdfScrollPanGesture:)];
+        }
+
+        [preferredScrollView addObserver:self
+                              forKeyPath:@"contentOffset"
+                                 options:NSKeyValueObservingOptionNew
+                                 context:RNPDFPdfScrollViewContentOffsetContext];
+        _isObservingPdfScrollView = YES;
+
+        [_annotationOverlay refreshDisplay];
+    }
+}
+
+- (void)applyScrollInteractionModeToView:(UIView *)view depth:(int)depth
+{
+    if (view == nil || depth > 10) {
+        return;
+    }
+
+    if ([view isKindOfClass:[UIScrollView class]]) {
+        UIScrollView *scrollView = (UIScrollView *)view;
+        scrollView.scrollEnabled = _scrollEnabled && !_singlePage;
+
+        UIPanGestureRecognizer *panRecognizer = scrollView.panGestureRecognizer;
+        if (panRecognizer != nil) {
+            panRecognizer.minimumNumberOfTouches = _annotationMode ? 2 : 1;
+        }
+    }
+
+    for (UIView *subview in view.subviews) {
+        [self applyScrollInteractionModeToView:subview depth:depth + 1];
+    }
+}
+
 #pragma mark - Autoscroll
 
 - (UIScrollView *)findPdfScrollView
 {
+    [self refreshPdfScrollViewBinding];
     if (_pdfScrollView) return _pdfScrollView;
-    for (UIView *subview in _pdfView.subviews) {
-        if ([subview isKindOfClass:[UIScrollView class]]) {
-            _pdfScrollView = (UIScrollView *)subview;
-            _originalScrollDelegate = _pdfScrollView.delegate;
-            _pdfScrollView.delegate = self;
-            return _pdfScrollView;
-        }
-    }
     return nil;
 }
 
@@ -1326,53 +1417,54 @@ using namespace facebook::react;
     }
 }
 
-#pragma mark - UIScrollViewDelegate (autoscroll pause/resume)
-
-- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
+- (void)handlePdfScrollPanGesture:(UIPanGestureRecognizer *)gestureRecognizer
 {
-    _isUserDragging = YES;
-    [self stopDisplayLink];
-    [_autoScrollResumeTimer invalidate];
-    _autoScrollResumeTimer = nil;
-
-    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewWillBeginDragging:)]) {
-        [_originalScrollDelegate scrollViewWillBeginDragging:scrollView];
+    if (!_isAutoScrolling || gestureRecognizer != _pdfScrollPanRecognizer) {
+        return;
     }
-}
 
-- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate
-{
-    if (!decelerate) {
+    UIGestureRecognizerState state = gestureRecognizer.state;
+    if (state == UIGestureRecognizerStateBegan) {
+        _isUserDragging = YES;
+        [self stopDisplayLink];
+        [_autoScrollResumeTimer invalidate];
+        _autoScrollResumeTimer = nil;
+        return;
+    }
+
+    if ((state == UIGestureRecognizerStateEnded ||
+         state == UIGestureRecognizerStateCancelled ||
+         state == UIGestureRecognizerStateFailed) &&
+        _pdfScrollView != nil &&
+        !_pdfScrollView.isDragging &&
+        !_pdfScrollView.isDecelerating) {
         _isUserDragging = NO;
-        if (_isAutoScrolling) {
-            [self scheduleAutoScrollResume];
-        }
-    }
-
-    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidEndDragging:willDecelerate:)]) {
-        [_originalScrollDelegate scrollViewDidEndDragging:scrollView willDecelerate:decelerate];
-    }
-}
-
-- (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView
-{
-    _isUserDragging = NO;
-    if (_isAutoScrolling) {
         [self scheduleAutoScrollResume];
     }
-
-    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidEndDecelerating:)]) {
-        [_originalScrollDelegate scrollViewDidEndDecelerating:scrollView];
-    }
 }
 
-- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey,id> *)change
+                       context:(void *)context
 {
-    if ([_originalScrollDelegate respondsToSelector:@selector(scrollViewDidScroll:)]) {
-        [_originalScrollDelegate scrollViewDidScroll:scrollView];
+    if (context == RNPDFPdfScrollViewContentOffsetContext) {
+        if (object == _pdfScrollView) {
+            [_annotationOverlay refreshDisplay];
+
+            if (_isAutoScrolling &&
+                _isUserDragging &&
+                _pdfScrollView != nil &&
+                !_pdfScrollView.isDragging &&
+                !_pdfScrollView.isDecelerating) {
+                _isUserDragging = NO;
+                [self scheduleAutoScrollResume];
+            }
+        }
+        return;
     }
 
-    [_annotationOverlay refreshDisplay];
+    [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
 }
 
 @end
