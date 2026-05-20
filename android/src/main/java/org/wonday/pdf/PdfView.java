@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.SizeF;
+import android.util.SparseArray;
 import android.view.Choreographer;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,6 +28,7 @@ import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PointF;
@@ -113,6 +115,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private float originalWidth = 0;
     private float lastPageWidth = 0;
     private float lastPageHeight = 0;
+    private final SparseArray<PageRenderInfo> pageRenderInfoByIndex = new SparseArray<>();
+    private final Matrix pageRenderMatrix = new Matrix();
+    private final float[] pageRenderMatrixValues = new float[9];
 
     // used to store the parameters for `super.onSizeChanged`
     private int oldW = 0;
@@ -128,6 +133,20 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private long autoScrollResumeDelay = 3000L;
     private long lastFrameTimeNanos = 0;
     private float accumulatedScrollOffset = 0f; // float accumulator – avoids re-reading the rendering-quantised offset
+
+    private static final class PageRenderInfo {
+        final float left;
+        final float top;
+        final float width;
+        final float height;
+
+        PageRenderInfo(float left, float top, float width, float height) {
+            this.left = left;
+            this.top = top;
+            this.width = width;
+            this.height = height;
+        }
+    }
 
     public PdfView(Context context, AttributeSet set){
         super(context, set);
@@ -336,6 +355,15 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             originalWidth = pageWidth;
         }
 
+        canvas.getMatrix(pageRenderMatrix);
+        pageRenderMatrix.getValues(pageRenderMatrixValues);
+        pageRenderInfoByIndex.put(displayedPage, new PageRenderInfo(
+            pageRenderMatrixValues[Matrix.MTRANS_X],
+            pageRenderMatrixValues[Matrix.MTRANS_Y],
+            pageWidth,
+            pageHeight
+        ));
+
         if (lastPageWidth>0 && lastPageHeight>0 && (pageWidth!=lastPageWidth || pageHeight!=lastPageHeight)) {
             // maybe change by other instance, restore zoom setting
             Constants.Pinch.MINIMUM_ZOOM = this.minScale;
@@ -368,6 +396,47 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
     }
 
+    private void clearPageRenderInfo() {
+        pageRenderInfoByIndex.clear();
+        originalWidth = 0;
+        lastPageWidth = 0;
+        lastPageHeight = 0;
+    }
+
+    private PageRenderInfo getPageRenderInfo(int pageIndex) {
+        PageRenderInfo pageRenderInfo = pageRenderInfoByIndex.get(pageIndex);
+        if (pageRenderInfo != null) {
+            return pageRenderInfo;
+        }
+
+        SizeF pageSize = getPageSize(pageIndex);
+        if (pageSize == null) {
+            return null;
+        }
+
+        float zoom = getZoom();
+        float scaledPageWidth = pageSize.getWidth() * zoom;
+        float scaledPageHeight = pageSize.getHeight() * zoom;
+        float horizontalMargin = Math.max(0f, (getWidth() - scaledPageWidth) / 2f);
+        float pageTop = getFallbackPageTop(pageIndex, zoom) + getCurrentYOffset();
+        return new PageRenderInfo(horizontalMargin, pageTop, scaledPageWidth, scaledPageHeight);
+    }
+
+    private float getFallbackPageTop(int pageIndex, float zoom) {
+        float pageTop = 0f;
+        for (int i = 0; i < pageIndex; i++) {
+            SizeF previousPageSize = getPageSize(i);
+            if (previousPageSize == null) {
+                continue;
+            }
+
+            pageTop += previousPageSize.getHeight() * zoom;
+            pageTop += spacing * zoom;
+        }
+
+        return pageTop;
+    }
+
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
@@ -387,6 +456,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
     public void drawPdf() {
         showLog(format("drawPdf path:%s %s", this.path, this.page));
+        clearPageRenderInfo();
 
         if (this.path != null){
 
@@ -1132,14 +1202,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return;
             }
 
-            SizeF pageSize = PdfView.this.getPageSize(activeSelectionPageIndex);
-            if (pageSize == null) {
+            PageRenderInfo pageRenderInfo = PdfView.this.getPageRenderInfo(activeSelectionPageIndex);
+            if (pageRenderInfo == null) {
                 return;
             }
 
-            float zoom = PdfView.this.getZoom();
-            float scaledPageWidth = Math.max(1f, pageSize.getWidth() * zoom);
-            float scaledPageHeight = Math.max(1f, pageSize.getHeight() * zoom);
+            float scaledPageWidth = Math.max(1f, pageRenderInfo.width);
+            float scaledPageHeight = Math.max(1f, pageRenderInfo.height);
             float normalizedDeltaX = deltaX / scaledPageWidth;
             float normalizedDeltaY = deltaY / scaledPageHeight;
 
@@ -1159,14 +1228,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return;
             }
 
-            SizeF pageSize = PdfView.this.getPageSize(activeSelectionPageIndex);
-            if (pageSize == null) {
+            PageRenderInfo pageRenderInfo = PdfView.this.getPageRenderInfo(activeSelectionPageIndex);
+            if (pageRenderInfo == null) {
                 return;
             }
 
-            float zoom = PdfView.this.getZoom();
-            float scaledPageWidth = Math.max(1f, pageSize.getWidth() * zoom);
-            float scaledPageHeight = Math.max(1f, pageSize.getHeight() * zoom);
+            float scaledPageWidth = Math.max(1f, pageRenderInfo.width);
+            float scaledPageHeight = Math.max(1f, pageRenderInfo.height);
             float normalizedDeltaX = deltaX / scaledPageWidth;
             float normalizedDeltaY = deltaY / scaledPageHeight;
 
@@ -1485,23 +1553,17 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return null;
             }
 
-            float zoom = PdfView.this.getZoom();
-            float documentY = y - PdfView.this.getCurrentYOffset();
             for (int i = 0; i < PdfView.this.getPageCount(); i++) {
-                SizeF pageSize = PdfView.this.getPageSize(i);
-                if (pageSize == null) {
+                PageRenderInfo pageRenderInfo = PdfView.this.getPageRenderInfo(i);
+                if (pageRenderInfo == null) {
                     continue;
                 }
 
-                float scaledPageWidth = pageSize.getWidth() * zoom;
-                float scaledPageHeight = pageSize.getHeight() * zoom;
-                float horizontalMargin = Math.max(0f, (PdfView.this.getWidth() - scaledPageWidth) / 2f);
-                float pageTop = getPageTop(i, zoom);
-                if (documentY >= pageTop && documentY <= pageTop + scaledPageHeight) {
-                    float pageX = x - horizontalMargin;
-                    if (pageX >= 0f && pageX <= scaledPageWidth) {
-                        return new AnnotationHit(i, pageSize);
-                    }
+                if (x >= pageRenderInfo.left &&
+                    x <= pageRenderInfo.left + pageRenderInfo.width &&
+                    y >= pageRenderInfo.top &&
+                    y <= pageRenderInfo.top + pageRenderInfo.height) {
+                    return new AnnotationHit(i, pageRenderInfo);
                 }
             }
 
@@ -1509,26 +1571,25 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         private PointF normalizedPointFor(AnnotationHit hit, float x, float y) {
-            float zoom = PdfView.this.getZoom();
-            SizeF pageSize = hit.pageSize;
-            float scaledPageWidth = pageSize.getWidth() * zoom;
-            float scaledPageHeight = pageSize.getHeight() * zoom;
-            float horizontalMargin = Math.max(0f, (PdfView.this.getWidth() - scaledPageWidth) / 2f);
-            float pageTop = getPageTop(hit.pageIndex, zoom);
-            float pageX = x - horizontalMargin;
-            float documentY = y - PdfView.this.getCurrentYOffset();
-            float pageY = documentY - pageTop;
-            return new PointF(pageX / Math.max(1f, scaledPageWidth), pageY / Math.max(1f, scaledPageHeight));
+            PageRenderInfo pageRenderInfo = hit.pageRenderInfo;
+            float pageX = x - pageRenderInfo.left;
+            float pageY = y - pageRenderInfo.top;
+            return new PointF(
+                pageX / Math.max(1f, pageRenderInfo.width),
+                pageY / Math.max(1f, pageRenderInfo.height)
+            );
         }
 
         private PointF viewPointForNormalizedPoint(int pageIndex, float normalizedX, float normalizedY) {
-            SizeF pageSize = PdfView.this.getPageSize(pageIndex);
-            float zoom = PdfView.this.getZoom();
-            float scaledPageWidth = pageSize.getWidth() * zoom;
-            float scaledPageHeight = pageSize.getHeight() * zoom;
-            float horizontalMargin = Math.max(0f, (PdfView.this.getWidth() - scaledPageWidth) / 2f);
-            float pageTop = getPageTop(pageIndex, zoom) + PdfView.this.getCurrentYOffset();
-            return new PointF(horizontalMargin + (normalizedX * scaledPageWidth), pageTop + (normalizedY * scaledPageHeight));
+            PageRenderInfo pageRenderInfo = PdfView.this.getPageRenderInfo(pageIndex);
+            if (pageRenderInfo == null) {
+                return new PointF();
+            }
+
+            return new PointF(
+                pageRenderInfo.left + (normalizedX * pageRenderInfo.width),
+                pageRenderInfo.top + (normalizedY * pageRenderInfo.height)
+            );
         }
 
         private RectF viewRectForAnnotation(JSONObject annotation, int pageIndex) {
@@ -1538,16 +1599,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return null;
             }
 
-            SizeF pageSize = PdfView.this.getPageSize(pageIndex);
-            if (pageSize == null) {
+            PageRenderInfo pageRenderInfo = PdfView.this.getPageRenderInfo(pageIndex);
+            if (pageRenderInfo == null) {
                 return null;
             }
-
-            float zoom = PdfView.this.getZoom();
-            float scaledPageWidth = pageSize.getWidth() * zoom;
-            float scaledPageHeight = pageSize.getHeight() * zoom;
-            float horizontalMargin = Math.max(0f, (PdfView.this.getWidth() - scaledPageWidth) / 2f);
-            float pageTop = getPageTop(pageIndex, zoom) + PdfView.this.getCurrentYOffset();
 
             if ("ink".equals(type)) {
                 JSONArray points = annotation.optJSONArray("points");
@@ -1577,10 +1632,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     return null;
                 }
 
-                float left = horizontalMargin + (minX * scaledPageWidth);
-                float top = pageTop + (minY * scaledPageHeight);
-                float right = horizontalMargin + (maxX * scaledPageWidth);
-                float bottom = pageTop + (maxY * scaledPageHeight);
+                float left = pageRenderInfo.left + (minX * pageRenderInfo.width);
+                float top = pageRenderInfo.top + (minY * pageRenderInfo.height);
+                float right = pageRenderInfo.left + (maxX * pageRenderInfo.width);
+                float bottom = pageRenderInfo.top + (maxY * pageRenderInfo.height);
                 return new RectF(Math.min(left, right), Math.min(top, bottom), Math.max(left, right), Math.max(top, bottom));
             }
 
@@ -1589,10 +1644,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             float width = (float) bounds.optDouble("width", 0f);
             float height = (float) bounds.optDouble("height", 0f);
 
-            float left = horizontalMargin + (x * scaledPageWidth);
-            float top = pageTop + (y * scaledPageHeight);
-            float right = horizontalMargin + ((x + width) * scaledPageWidth);
-            float bottom = pageTop + ((y + height) * scaledPageHeight);
+            float left = pageRenderInfo.left + (x * pageRenderInfo.width);
+            float top = pageRenderInfo.top + (y * pageRenderInfo.height);
+            float right = pageRenderInfo.left + ((x + width) * pageRenderInfo.width);
+            float bottom = pageRenderInfo.top + ((y + height) * pageRenderInfo.height);
 
             return new RectF(Math.min(left, right), Math.min(top, bottom), Math.max(left, right), Math.max(top, bottom));
         }
@@ -1640,26 +1695,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             return "local-" + java.util.UUID.randomUUID().toString();
         }
 
-        private float getPageTop(int pageIndex, float zoom) {
-            float pageTop = 0f;
-            for (int i = 0; i < pageIndex; i++) {
-                SizeF previousPageSize = PdfView.this.getPageSize(i);
-                if (previousPageSize == null) {
-                    continue;
-                }
-                pageTop += previousPageSize.getHeight() * zoom;
-                pageTop += PdfView.this.spacing * zoom;
-            }
-            return pageTop;
-        }
-
         private final class AnnotationHit {
             final int pageIndex;
-            final SizeF pageSize;
+            final PageRenderInfo pageRenderInfo;
 
-            AnnotationHit(int pageIndex, SizeF pageSize) {
+            AnnotationHit(int pageIndex, PageRenderInfo pageRenderInfo) {
                 this.pageIndex = pageIndex;
-                this.pageSize = pageSize;
+                this.pageRenderInfo = pageRenderInfo;
             }
         }
     }
