@@ -910,7 +910,22 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
                 if ("ink".equals(type)) {
                     JSONArray points = annotation.optJSONArray("points");
-                    if (points == null || points.length() < 2) {
+                    if (points == null || points.length() == 0) {
+                        continue;
+                    }
+
+                    if (points.length() == 1) {
+                        JSONObject point = points.optJSONObject(0);
+                        if (point != null) {
+                            float pageX = (float) point.optDouble("x", 0f);
+                            float pageY = (float) point.optDouble("y", 0f);
+                            PointF viewPoint = viewPointForNormalizedPoint(pageIndex, pageX, pageY);
+                            float radius = Math.max(1f, (float) styleFor(annotation).optDouble("thickness", 2.0)) / 2f;
+                            Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                            dotPaint.setStyle(Paint.Style.FILL);
+                            dotPaint.setColor(annotationColor(annotation, Color.BLACK));
+                            canvas.drawCircle(viewPoint.x, viewPoint.y, radius, dotPaint);
+                        }
                         continue;
                     }
 

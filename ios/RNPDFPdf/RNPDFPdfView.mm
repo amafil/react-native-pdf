@@ -1005,6 +1005,13 @@ using namespace facebook::react;
                 [_annotationOverlay createTextAnnotationAtViewPoint:point page:pdfPage];
                 return;
             }
+
+            if ([_annotationTool isEqualToString:@"ink"]) {
+                [_annotationOverlay beginInkAtViewPoint:point page:pdfPage];
+                [_annotationOverlay endInk];
+                [self notifyOnChangeWithMessage:@"strokeEnd"];
+                return;
+            }
         }
 
         [self notifyOnChangeWithMessage:
@@ -2231,7 +2238,18 @@ static NSString *RNPDFGenerateAnnotationId(void)
         NSString *type = [self normalizedAnnotationType:annotation[@"type"]];
         if ([type isEqualToString:@"ink"]) {
             NSArray *points = annotation[@"points"];
-            if (points.count < 2) {
+            if (points.count == 0) {
+                continue;
+            }
+
+            if (points.count == 1) {
+                NSDictionary *point = points[0];
+                CGPoint normalizedPoint = CGPointMake([point[@"x"] doubleValue], [point[@"y"] doubleValue]);
+                CGPoint viewPoint = [self viewPointForNormalizedPoint:normalizedPoint page:page];
+                CGFloat radius = [self lineWidthForAnnotation:annotation] / 2.0;
+                CGRect dotRect = CGRectMake(viewPoint.x - radius, viewPoint.y - radius, radius * 2, radius * 2);
+                [[self colorForAnnotationType:type style:annotation[@"style"]] setFill];
+                [[UIBezierPath bezierPathWithOvalInRect:dotRect] fill];
                 continue;
             }
 
