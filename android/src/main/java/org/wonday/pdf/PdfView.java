@@ -358,8 +358,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         canvas.getMatrix(pageRenderMatrix);
         pageRenderMatrix.getValues(pageRenderMatrixValues);
         pageRenderInfoByIndex.put(displayedPage, new PageRenderInfo(
-            pageRenderMatrixValues[Matrix.MTRANS_X],
-            pageRenderMatrixValues[Matrix.MTRANS_Y],
+            pageRenderMatrixValues[Matrix.MTRANS_X] - getCurrentXOffset(),
+            pageRenderMatrixValues[Matrix.MTRANS_Y] - getCurrentYOffset(),
             pageWidth,
             pageHeight
         ));
@@ -406,7 +406,12 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private PageRenderInfo getPageRenderInfo(int pageIndex) {
         PageRenderInfo pageRenderInfo = pageRenderInfoByIndex.get(pageIndex);
         if (pageRenderInfo != null) {
-            return pageRenderInfo;
+            return new PageRenderInfo(
+                pageRenderInfo.left + getCurrentXOffset(),
+                pageRenderInfo.top + getCurrentYOffset(),
+                pageRenderInfo.width,
+                pageRenderInfo.height
+            );
         }
 
         SizeF pageSize = getPageSize(pageIndex);
