@@ -567,6 +567,8 @@ export default class Pdf extends Component {
                     this._annotationSavePromise.reject(new Error(annotationError || 'Annotation save failed'));
                     this._annotationSavePromise = null;
                 }
+            } else if (message[0] === 'strokeEnd') {
+                this.props.onAnnotationStrokeEnd && this.props.onAnnotationStrokeEnd();
             }
         }
 

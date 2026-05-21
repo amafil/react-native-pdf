@@ -871,24 +871,6 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     endInk();
                     return true;
                 }
-            } else if ("highlight".equals(currentTool)) {
-                if (action == MotionEvent.ACTION_DOWN) {
-                    AnnotationHit hit = hitTest(event.getX(), event.getY());
-                    if (hit == null) {
-                        return false;
-                    }
-                    beginMarkup(hit, event.getX(), event.getY(), currentTool);
-                    return true;
-                } else if (action == MotionEvent.ACTION_MOVE) {
-                    AnnotationHit hit = hitTest(event.getX(), event.getY());
-                    if (hit != null) {
-                        updateMarkup(hit, event.getX(), event.getY());
-                    }
-                    return true;
-                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                    endMarkup();
-                    return true;
-                }
             } else if ("text".equals(currentTool)) {
                 if (action == MotionEvent.ACTION_UP) {
                     AnnotationHit hit = hitTest(event.getX(), event.getY());
@@ -1040,6 +1022,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         private void drawSelectionDecorations(Canvas canvas) {
+            if (!annotationModeEnabled || !editable || !supported) {
+                return;
+            }
+
             JSONObject annotation = getSelectedAnnotation();
             if (annotation == null) {
                 return;
@@ -1397,6 +1383,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         private void endInk() {
             activeInkAnnotation = null;
             invalidate();
+            PdfView.this.notifyOnChangeWithMessage("strokeEnd");
         }
 
         private void beginMarkup(AnnotationHit hit, float x, float y, String type) {
@@ -1677,6 +1664,14 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
 
             try {
+                // Support CSS-standard #RRGGBBAA (alpha last) in addition to #RRGGBB
+                if (color.startsWith("#") && color.length() == 9) {
+                    int r = Integer.parseInt(color.substring(1, 3), 16);
+                    int g = Integer.parseInt(color.substring(3, 5), 16);
+                    int b = Integer.parseInt(color.substring(5, 7), 16);
+                    int a = Integer.parseInt(color.substring(7, 9), 16);
+                    return Color.argb(a, r, g, b);
+                }
                 return Color.parseColor(color);
             } catch (IllegalArgumentException ex) {
                 return fallback;

@@ -29,7 +29,7 @@ export type Source = {
 
 export type AnnotationRotation = 0 | 90 | 180 | 270;
 export type AnnotationIdMode = 'auto' | 'manual';
-export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight';
+export type AnnotationTool = 'select' | 'ink' | 'text';
 export type AnnotationTextAlign = 'left' | 'center' | 'right';
 
 export type AnnotationPoint = {
@@ -169,6 +169,7 @@ export interface PdfProps {
     onScaleChanged?: (scale: number) => void,
     onPressLink?: (url: string) => void,
     onAutoScrollEnd?: () => void,
+    onAnnotationStrokeEnd?: () => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
 }
 

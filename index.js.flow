@@ -26,7 +26,7 @@ export type Source = {
 
 export type AnnotationRotation = 0 | 90 | 180 | 270;
 export type AnnotationIdMode = 'auto' | 'manual';
-export type AnnotationTool = 'select' | 'ink' | 'text' | 'highlight';
+export type AnnotationTool = 'select' | 'ink' | 'text';
 export type AnnotationTextAlign = 'left' | 'center' | 'right';
 
 export type AnnotationPoint = {
@@ -121,6 +121,7 @@ export type Props = {
   onPageSingleTap?: (page: number, x: number, y: number) => void,
   onScaleChanged?: (scale: number) => void,
   onPressLink?: (url: string) => void,
+  onAnnotationStrokeEnd?: () => void,
   page?: number,
   password?: string,
   progressContainerStyle?: ViewStyleProp,

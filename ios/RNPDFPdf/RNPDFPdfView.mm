@@ -157,9 +157,12 @@ using namespace facebook::react;
 {
     const auto &newProps = *std::static_pointer_cast<const RNPDFPdfViewProps>(props);
     NSMutableArray<NSString *> *updatedPropNames = [NSMutableArray new];
-    if (_path != RCTNSStringFromStringNilIfEmpty(newProps.path)) {
-        _path = RCTNSStringFromStringNilIfEmpty(newProps.path);
-        [updatedPropNames addObject:@"path"];
+    {
+        NSString *newPath = RCTNSStringFromStringNilIfEmpty(newProps.path);
+        if (_path != newPath && ![_path isEqualToString:newPath]) {
+            _path = newPath;
+            [updatedPropNames addObject:@"path"];
+        }
     }
     if (_page != newProps.page) {
         _page = newProps.page;
@@ -197,9 +200,12 @@ using namespace facebook::react;
         _enableDoubleTapZoom = newProps.enableDoubleTapZoom;
         [updatedPropNames addObject:@"enableDoubleTapZoom"];
     }
-    if (_annotations != RCTNSStringFromStringNilIfEmpty(newProps.annotations)) {
-        _annotations = RCTNSStringFromStringNilIfEmpty(newProps.annotations);
-        [updatedPropNames addObject:@"annotations"];
+    {
+        NSString *newAnnotations = RCTNSStringFromStringNilIfEmpty(newProps.annotations);
+        if (_annotations != newAnnotations && ![_annotations isEqualToString:newAnnotations]) {
+            _annotations = newAnnotations;
+            [updatedPropNames addObject:@"annotations"];
+        }
     }
     if (_annotationMode != newProps.annotationMode) {
         _annotationMode = newProps.annotationMode;
@@ -259,7 +265,9 @@ using namespace facebook::react;
     [self didSetProps:updatedPropNames];
 
     if (_annotationOverlay) {
-        [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
+        if ([updatedPropNames containsObject:@"annotations"] || [updatedPropNames containsObject:@"path"]) {
+            [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
+        }
         [_annotationOverlay setAnnotationMode:_annotationMode tool:_annotationTool editable:_annotationEditable idMode:_annotationIdMode];
         [_annotationOverlay setInkDefaultsColor:_annotationInkColor thickness:_annotationInkThickness];
         _annotationOverlay.pdfView = _pdfView;
@@ -683,7 +691,9 @@ using namespace facebook::react;
         }
 
         if (_annotationOverlay) {
-            [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
+            if ([changedProps containsObject:@"annotations"] || [changedProps containsObject:@"path"]) {
+                [_annotationOverlay replaceAnnotationsJSONString:_annotations editable:_annotationEditable idMode:_annotationIdMode];
+            }
             [_annotationOverlay setAnnotationMode:_annotationMode tool:_annotationTool editable:_annotationEditable idMode:_annotationIdMode];
             [_annotationOverlay setInkDefaultsColor:_annotationInkColor thickness:_annotationInkThickness];
             _annotationOverlay.pdfView = _pdfView;
@@ -1060,20 +1070,15 @@ using namespace facebook::react;
     if (sender.state == UIGestureRecognizerStateBegan) {
         if ([_annotationTool isEqualToString:@"ink"]) {
             [_annotationOverlay beginInkAtViewPoint:point page:pdfPage];
-        } else if ([_annotationTool isEqualToString:@"highlight"]) {
-            [_annotationOverlay beginMarkupAtViewPoint:point page:pdfPage type:_annotationTool];
         }
     } else if (sender.state == UIGestureRecognizerStateChanged) {
         if ([_annotationTool isEqualToString:@"ink"]) {
             [_annotationOverlay appendInkPointAtViewPoint:point page:pdfPage];
-        } else if ([_annotationTool isEqualToString:@"highlight"]) {
-            [_annotationOverlay updateMarkupAtViewPoint:point page:pdfPage];
         }
     } else if (sender.state == UIGestureRecognizerStateEnded || sender.state == UIGestureRecognizerStateCancelled || sender.state == UIGestureRecognizerStateFailed) {
         if ([_annotationTool isEqualToString:@"ink"]) {
             [_annotationOverlay endInk];
-        } else if ([_annotationTool isEqualToString:@"highlight"]) {
-            [_annotationOverlay endMarkup];
+            [self notifyOnChangeWithMessage:@"strokeEnd"];
         }
     }
 }
@@ -1182,7 +1187,7 @@ using namespace facebook::react;
             return [_annotationOverlay annotationSelectionHitAtPoint:point includeHandles:YES] != nil;
         }
 
-        return [@[@"ink", @"highlight"] containsObject:_annotationTool];
+        return [_annotationTool isEqualToString:@"ink"];
     }
 
     return !_singlePage;
@@ -1489,10 +1494,11 @@ static UIColor *RNPDFColorFromHexString(NSString *hexString, UIColor *fallback)
     if (cleanHex.length == 8) {
         NSScanner *scanner = [NSScanner scannerWithString:cleanHex];
         [scanner scanHexInt:&rgbValue];
-        return [UIColor colorWithRed:((rgbValue & 0x00FF0000) >> 16) / 255.0f
-                               green:((rgbValue & 0x0000FF00) >> 8) / 255.0f
-                                blue:(rgbValue & 0x000000FF) / 255.0f
-                               alpha:((rgbValue & 0xFF000000) >> 24) / 255.0f];
+        // CSS/RN standard: #RRGGBBAA (alpha is last two hex digits)
+        return [UIColor colorWithRed:((rgbValue & 0xFF000000) >> 24) / 255.0f
+                               green:((rgbValue & 0x00FF0000) >> 16) / 255.0f
+                                blue:((rgbValue & 0x0000FF00) >> 8) / 255.0f
+                               alpha:(rgbValue & 0x000000FF) / 255.0f];
     }
 
     return fallback;
