@@ -111,6 +111,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private boolean singlePage = false;
     private boolean scrollEnabled = true;
     private boolean enableRTL = false;
+    private View.OnTouchListener dragPinchTouchListener;
 
     private float originalWidth = 0;
     private float lastPageWidth = 0;
@@ -146,6 +147,16 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             this.width = width;
             this.height = height;
         }
+    }
+
+    @Override
+    public void setOnTouchListener(View.OnTouchListener l) {
+        dragPinchTouchListener = l;
+        super.setOnTouchListener(l);
+    }
+
+    public boolean dispatchToParentTouchListener(MotionEvent event) {
+        return dragPinchTouchListener != null && dragPinchTouchListener.onTouch(this, event);
     }
 
     public PdfView(Context context, AttributeSet set){
@@ -838,6 +849,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
 
             if (ev.getPointerCount() > 1) {
+                commitTextEditingIfNeeded();
+                clearSelectionInteraction();
                 return false;
             }
 
@@ -849,6 +862,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             return !TextUtils.isEmpty(currentTool);
         }
 
+        private boolean dispatchToParentPdfView(MotionEvent event) {
+            return PdfView.this.dispatchToParentTouchListener(event);
+        }
+
         @Override
         public boolean onTouchEvent(MotionEvent event) {
             if (!annotationModeEnabled || !editable || !supported) {
@@ -856,7 +873,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
 
             if (event.getPointerCount() > 1) {
-                return false;
+                commitTextEditingIfNeeded();
+                clearSelectionInteraction();
+                return dispatchToParentPdfView(event);
             }
 
             String currentTool = tool == null ? "select" : tool;
