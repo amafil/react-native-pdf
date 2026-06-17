@@ -103,6 +103,7 @@ static void *RNPDFPdfScrollViewContentOffsetContext = &RNPDFPdfScrollViewContent
     RCTBridge *_bridge;
     PDFDocument *_pdfDocument;
     PDFView *_pdfView;
+    NSString *_loadedDocumentPath;
     PDFOutline *root;
     float _fixScaleFactor;
     bool _initialed;
@@ -362,6 +363,14 @@ using namespace facebook::react;
 
 - (void)initCommonProps
 {
+    _path = nil;
+    _loadedDocumentPath = nil;
+    _password = nil;
+    _annotations = nil;
+    _annotationMode = NO;
+    _annotationEditable = NO;
+    _annotationTool = nil;
+    _annotationIdMode = nil;
     _page = 1;
     _scale = 1;
     _minScale = MIN_SCALE;
@@ -480,15 +489,67 @@ using namespace facebook::react;
 
         _changedProps = changedProps;
 
+        BOOL needsDocumentLoad = _path.length > 0 && (_pdfDocument == Nil || ![_loadedDocumentPath isEqualToString:_path]);
+        if (needsDocumentLoad) {
+            if (_pdfDocument != Nil) {
+                _pdfDocument = Nil;
+            }
+            _loadedDocumentPath = nil;
+
+            if ([_path hasPrefix:@"blob:"]) {
+                RCTBlobManager *blobManager = [
+#ifdef RCT_NEW_ARCH_ENABLED
+        [RCTBridge currentBridge]
+#else
+        _bridge
+#endif // RCT_NEW_ARCH_ENABLED
+                    moduleForName:@"BlobModule"];
+                NSURL *blobURL = [NSURL URLWithString:_path];
+                NSData *blobData = [blobManager resolveURL:blobURL];
+                if (blobData != nil) {
+                    _pdfDocument = [[PDFDocument alloc] initWithData:blobData];
+                }
+            } else {
+                NSString *decodedPath = (__bridge_transfer NSString *)CFURLCreateStringByReplacingPercentEscapes(NULL, (CFStringRef)_path, CFSTR(""));
+                if (decodedPath != nil) {
+                    _path = decodedPath;
+                }
+                NSURL *fileURL = [NSURL fileURLWithPath:_path];
+                _pdfDocument = [[PDFDocument alloc] initWithURL:fileURL];
+            }
+
+            if (_pdfDocument) {
+                if (_pdfDocument.isLocked && ![_pdfDocument unlockWithPassword:_password]) {
+                    [self notifyOnChangeWithMessage:@"error|Password required or incorrect password."];
+                    _pdfDocument = Nil;
+                    return;
+                }
+
+                _loadedDocumentPath = [_path copy];
+                _pdfView.document = _pdfDocument;
+                if (_annotationOverlay) {
+                    _annotationOverlay.pdfView = _pdfView;
+                    _annotationOverlay.pdfDocument = _pdfDocument;
+                }
+            } else {
+                [self notifyOnChangeWithMessage:[[NSString alloc] initWithString:[NSString stringWithFormat:@"error|Load pdf failed. path=%s",_path.UTF8String]]];
+                _pdfDocument = Nil;
+                return;
+            }
+        }
+
     } else {
 
-        if ([changedProps containsObject:@"path"]) {
+        BOOL needsDocumentLoad = _path.length > 0 && (_pdfDocument == Nil || ![_loadedDocumentPath isEqualToString:_path]);
+
+        if (needsDocumentLoad) {
 
 
             if (_pdfDocument != Nil) {
                 //Release old doc
                 _pdfDocument = Nil;
             }
+            _loadedDocumentPath = nil;
             
             if ([_path hasPrefix:@"blob:"]) {
                 RCTBlobManager *blobManager = [
@@ -506,7 +567,10 @@ using namespace facebook::react;
             } else {
             
                 // decode file path
-                _path = (__bridge_transfer NSString *)CFURLCreateStringByReplacingPercentEscapes(NULL, (CFStringRef)_path, CFSTR(""));
+                NSString *decodedPath = (__bridge_transfer NSString *)CFURLCreateStringByReplacingPercentEscapes(NULL, (CFStringRef)_path, CFSTR(""));
+                if (decodedPath != nil) {
+                    _path = decodedPath;
+                }
                 NSURL *fileURL = [NSURL fileURLWithPath:_path];
                 _pdfDocument = [[PDFDocument alloc] initWithURL:fileURL];
             }
@@ -522,6 +586,7 @@ using namespace facebook::react;
                     return;
                 }
 
+                _loadedDocumentPath = [_path copy];
                 _pdfView.document = _pdfDocument;
                 if (_annotationOverlay) {
                     _annotationOverlay.pdfView = _pdfView;
