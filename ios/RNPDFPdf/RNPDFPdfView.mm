@@ -11,6 +11,7 @@
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <PDFKit/PDFKit.h>
+#import <UIKit/UIKit.h>
 
 #if __has_include(<React/RCTAssert.h>)
 #import <React/RCTBridgeModule.h>
@@ -450,6 +451,81 @@ using namespace facebook::react;
                                          selector:@selector(handleSelectionChanged:) 
                                              name:PDFViewSelectionChangedNotification 
                                            object:_pdfView];
+
+    [self becomeFirstResponder];
+}
+
+- (BOOL)canBecomeFirstResponder
+{
+    return YES;
+}
+
+- (void)didMoveToWindow
+{
+    [super didMoveToWindow];
+
+    if (self.window != nil) {
+        [self becomeFirstResponder];
+    }
+}
+
+- (NSArray<UIKeyCommand *> *)keyCommands
+{
+    return @[
+        [UIKeyCommand keyCommandWithInput:UIKeyInputLeftArrow modifierFlags:0 action:@selector(handlePreviousPageTurnCommand:)],
+        [UIKeyCommand keyCommandWithInput:UIKeyInputRightArrow modifierFlags:0 action:@selector(handleNextPageTurnCommand:)],
+        [UIKeyCommand keyCommandWithInput:UIKeyInputUpArrow modifierFlags:0 action:@selector(handlePreviousPageTurnCommand:)],
+        [UIKeyCommand keyCommandWithInput:UIKeyInputDownArrow modifierFlags:0 action:@selector(handleNextPageTurnCommand:)]
+    ];
+}
+
+- (void)handlePreviousPageTurnCommand:(UIKeyCommand *)command
+{
+    [self handleHardwarePageTurn:@"previous" source:@"hardware"];
+}
+
+- (void)handleNextPageTurnCommand:(UIKeyCommand *)command
+{
+    [self handleHardwarePageTurn:@"next" source:@"hardware"];
+}
+
+- (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event
+{
+    BOOL handled = NO;
+
+    if (@available(iOS 13.4, *)) {
+        for (UIPress *press in presses) {
+            if (press.key == nil) {
+                continue;
+            }
+
+            NSString *direction = nil;
+            UIKeyboardHIDUsage keyCode = press.key.keyCode;
+
+            switch (keyCode) {
+                case UIKeyboardHIDUsageKeyboardLeftArrow:
+                case UIKeyboardHIDUsageKeyboardUpArrow:
+                case UIKeyboardHIDUsageKeyboardPageUp:
+                    direction = @"previous";
+                    break;
+                case UIKeyboardHIDUsageKeyboardRightArrow:
+                case UIKeyboardHIDUsageKeyboardDownArrow:
+                case UIKeyboardHIDUsageKeyboardPageDown:
+                    direction = @"next";
+                    break;
+                default:
+                    break;
+            }
+
+            if (direction != nil) {
+                handled = [self handleHardwarePageTurn:direction source:@"hardware"] || handled;
+            }
+        }
+    }
+
+    if (!handled) {
+        [super pressesBegan:presses withEvent:event];
+    }
 }
 
 - (void)PDFViewWillClickOnLink:(PDFView *)sender withURL:(NSURL *)url
@@ -937,6 +1013,36 @@ using namespace facebook::react;
 
     [_annotationOverlay refreshDisplay];
 
+}
+
+- (BOOL)handleHardwarePageTurn:(NSString *)direction source:(NSString *)source
+{
+    if (_annotationMode || _pdfDocument == nil) {
+        return NO;
+    }
+
+    NSInteger pageCount = (NSInteger)_pdfDocument.pageCount;
+    if (pageCount <= 0) {
+        return NO;
+    }
+
+    NSInteger currentPage = MAX((NSInteger)_page, 1);
+    NSInteger nextPage = [direction isEqualToString:@"next"]
+        ? MIN(pageCount, currentPage + 1)
+        : MAX((NSInteger)1, currentPage - 1);
+
+    if (nextPage == currentPage) {
+        return NO;
+    }
+
+    if (_isAutoScrolling) {
+        [self stopAutoScroll];
+    }
+
+    _page = (int)nextPage;
+    [self didSetProps:@[@"page"]];
+    [self notifyOnChangeWithMessage:[NSString stringWithFormat:@"pageTurn|%@|%ld|%ld|%@", direction, (long)nextPage, (long)pageCount, source ?: @"hardware"]];
+    return YES;
 }
 
 - (void)onScaleChanged:(NSNotification *)noti

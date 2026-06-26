@@ -19,6 +19,7 @@ import android.os.ParcelFileDescriptor;
 import android.util.SizeF;
 import android.util.SparseArray;
 import android.view.Choreographer;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.util.Log;
@@ -162,6 +163,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     public PdfView(Context context, AttributeSet set){
         super(context, set);
         ConfigKt.setPdfiumConfig(new Config(new DefaultLogger(), AlreadyClosedBehavior.IGNORE));
+        setFocusable(true);
+        setFocusableInTouchMode(true);
         autoScrollResumeHandler = new Handler(Looper.getMainLooper());
         annotationOverlayView = new AnnotationOverlayView(context);
         addView(annotationOverlayView, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -170,9 +173,16 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     }
 
     @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        requestFocus();
+    }
+
+    @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
+            requestFocus();
             isUserTouching = true;
             if (isAutoScrolling && autoScrollFrameCallback != null) {
                 Choreographer.getInstance().removeFrameCallback(autoScrollFrameCallback);
@@ -186,6 +196,21 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
         }
         return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            String direction = getPageTurnDirectionForKeyCode(event.getKeyCode());
+            if (direction != null) {
+                if (event.getRepeatCount() == 0) {
+                    handleHardwarePageTurn(direction, "hardware");
+                }
+                return true;
+            }
+        }
+
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
@@ -607,6 +632,34 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     public void setPage(int page) {
         this.page = Math.max(page, 1);
         this.handlePage(this.page - 1);
+    }
+
+    public boolean handleHardwarePageTurn(String direction, String source) {
+        if (annotationMode) {
+            return false;
+        }
+
+        int pageCount = getPageCount();
+        if (pageCount <= 0) {
+            return false;
+        }
+
+        int currentPage = Math.max(1, this.page);
+        int nextPage = "next".equals(direction)
+            ? Math.min(pageCount, currentPage + 1)
+            : Math.max(1, currentPage - 1);
+
+        if (nextPage == currentPage) {
+            return false;
+        }
+
+        if (isAutoScrolling) {
+            stopAutoScroll();
+        }
+
+        setPage(nextPage);
+        dispatchPageTurnEvent(direction, nextPage, pageCount, source);
+        return true;
     }
 
     public void setEnableRTL(boolean enableRTL) {
@@ -1964,6 +2017,40 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
         if (dispatcher != null) {
             dispatcher.dispatchEvent(tce);
+        }
+    }
+
+    private void dispatchPageTurnEvent(String direction, int nextPage, int pageCount, String source) {
+        WritableMap event = Arguments.createMap();
+        event.putString("message", "pageTurn|" + direction + "|" + nextPage + "|" + pageCount + "|" + source);
+
+        ThemedReactContext context = (ThemedReactContext) getContext();
+        EventDispatcher dispatcher = UIManagerHelper.getEventDispatcherForReactTag(context, getId());
+        int surfaceId = UIManagerHelper.getSurfaceId(this);
+
+        TopChangeEvent tce = new TopChangeEvent(surfaceId, getId(), event);
+
+        if (dispatcher != null) {
+            dispatcher.dispatchEvent(tce);
+        }
+    }
+
+    private String getPageTurnDirectionForKeyCode(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_PAGE_UP:
+            case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+            case KeyEvent.KEYCODE_NAVIGATE_PREVIOUS:
+            case KeyEvent.KEYCODE_BUTTON_L1:
+                return "previous";
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+            case KeyEvent.KEYCODE_MEDIA_NEXT:
+            case KeyEvent.KEYCODE_NAVIGATE_NEXT:
+            case KeyEvent.KEYCODE_BUTTON_R1:
+                return "next";
+            default:
+                return null;
         }
     }
 }

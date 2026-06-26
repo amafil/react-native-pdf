@@ -89,6 +89,9 @@ export type AnnotationDocument = {
     annotations: Annotation[],
 };
 
+export type PageTurnDirection = 'previous' | 'next';
+export type HardwarePageTurnSource = 'hardware' | 'command';
+
 export type TextSelectionChangeEvent = {
   nativeEvent:
     | {
@@ -168,6 +171,7 @@ export interface PdfProps {
     onPageSingleTap?: (page: number, x: number, y: number) => void,
     onScaleChanged?: (scale: number) => void,
     onPressLink?: (url: string) => void,
+    onHardwarePageTurn?: (direction: PageTurnDirection, page: number, numberOfPages: number, source: HardwarePageTurnSource) => void,
     onAutoScrollEnd?: () => void,
     onAnnotationStrokeEnd?: () => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
@@ -187,6 +191,10 @@ export interface PdfRef {
      * Deletes all custom annotations in the current overlay draft.
      */
     deleteAllAnnotations(): void
+    /**
+     * Moves one page backward or forward using the same navigation rules as native hardware page-turn input.
+     */
+    handlePageTurn(direction: PageTurnDirection): boolean
     /**
      * Start smooth automatic vertical scrolling using the display refresh rate.
      * @param dpPerSecond - Scroll speed in density-independent pixels (dp) per second (default: 15). Produces consistent physical speed across screen densities.

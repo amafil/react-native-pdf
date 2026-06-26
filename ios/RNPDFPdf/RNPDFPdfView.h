@@ -35,6 +35,7 @@ UIView
 - (instancetype)initWithBridge:(RCTBridge *)bridge;
 - (void)startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)resumeDelay;
 - (void)stopAutoScroll;
+- (BOOL)handleHardwarePageTurn:(NSString *)direction source:(NSString *)source;
 
 @property(nonatomic, strong) NSString *path;
 @property(nonatomic) int page;

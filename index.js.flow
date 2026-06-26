@@ -86,6 +86,9 @@ export type AnnotationDocument = {
   annotations: Array<Annotation>,
 };
 
+export type PageTurnDirection = 'previous' | 'next';
+export type HardwarePageTurnSource = 'hardware' | 'command';
+
 export type TableContent = {
   children: TableContent[],
   mNativePtr: number,
@@ -121,6 +124,7 @@ export type Props = {
   onPageSingleTap?: (page: number, x: number, y: number) => void,
   onScaleChanged?: (scale: number) => void,
   onPressLink?: (url: string) => void,
+  onHardwarePageTurn?: (direction: PageTurnDirection, page: number, numberOfPages: number, source: HardwarePageTurnSource) => void,
   onAnnotationStrokeEnd?: () => void,
   page?: number,
   password?: string,
@@ -137,4 +141,5 @@ declare export default class Pdf extends Component<Props> {
   saveAnnotations: () => Promise<AnnotationDocument>;
   deleteSelectedAnnotation: () => void;
   deleteAllAnnotations: () => void;
+  handlePageTurn: (direction: PageTurnDirection) => boolean;
 }

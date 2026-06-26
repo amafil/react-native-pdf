@@ -75,6 +75,7 @@ export default class Pdf extends Component {
         onPageSingleTap: PropTypes.func,
         onScaleChanged: PropTypes.func,
         onPressLink: PropTypes.func,
+        onHardwarePageTurn: PropTypes.func,
         onAutoScrollEnd: PropTypes.func,
         enableTextSelection: PropTypes.bool,
         onTextSelectionChange: PropTypes.func,
@@ -129,6 +130,8 @@ export default class Pdf extends Component {
         },
         onPressLink: (url) => {
         },
+        onHardwarePageTurn: (direction, page, numberOfPages, source) => {
+        },
         enableTextSelection: true,
         onTextSelectionChange: (event) => {
         },
@@ -147,6 +150,9 @@ export default class Pdf extends Component {
 
         this.lastRNBFTask = null;
         this._annotationSavePromise = null;
+        this._isAutoScrollActive = false;
+        this._lastKnownPage = Number.isFinite(props.page) ? props.page : 1;
+        this._numberOfPages = 0;
 
     }
 
@@ -381,6 +387,8 @@ export default class Pdf extends Component {
         if ( (pageNumber === null) || (isNaN(pageNumber)) ) {
             throw new Error('Specified pageNumber is not a number');
         }
+
+        this._lastKnownPage = Number(pageNumber);
         if (!!global?.nativeFabricUIManager ) {
             if (this._root) {
                 PdfViewCommands.setNativePage(
@@ -394,6 +402,40 @@ export default class Pdf extends Component {
             });
           }
         
+    }
+
+    handlePageTurn(direction) {
+        if (direction !== 'previous' && direction !== 'next') {
+            throw new Error('Specified direction must be either "previous" or "next"');
+        }
+
+        const currentPage = Number.isFinite(this._lastKnownPage)
+            ? this._lastKnownPage
+            : (Number.isFinite(this.props.page) ? this.props.page : 1);
+        const pageDelta = direction === 'next' ? 1 : -1;
+        const hasKnownPageCount = Number.isFinite(this._numberOfPages) && this._numberOfPages > 0;
+        const nextPage = hasKnownPageCount
+            ? Math.max(1, Math.min(this._numberOfPages, currentPage + pageDelta))
+            : Math.max(1, currentPage + pageDelta);
+
+        if (nextPage === currentPage) {
+            return false;
+        }
+
+        if (this._isAutoScrollActive) {
+            this.stopAutoScroll();
+            this.props.onAutoScrollEnd && this.props.onAutoScrollEnd();
+        }
+
+        this.setPage(nextPage);
+        this.props.onHardwarePageTurn && this.props.onHardwarePageTurn(
+            direction,
+            nextPage,
+            hasKnownPageCount ? this._numberOfPages : nextPage,
+            'command',
+        );
+
+        return true;
     }
 
     saveAnnotations() {
@@ -528,6 +570,7 @@ export default class Pdf extends Component {
                 message[4] = message.splice(4).join('|');
             }
             if (message[0] === 'loadComplete') {
+                this._numberOfPages = Number(message[1]);
                 let tableContents;
                 try {
                     tableContents = message[4]&&JSON.parse(message[4]);
@@ -541,7 +584,26 @@ export default class Pdf extends Component {
                 tableContents
                 );
             } else if (message[0] === 'pageChanged') {
+                this._lastKnownPage = Number(message[1]);
+                this._numberOfPages = Number(message[2]);
                 this.props.onPageChanged && this.props.onPageChanged(Number(message[1]), Number(message[2]));
+            } else if (message[0] === 'pageTurn') {
+                const nextPage = Number(message[2]);
+                const numberOfPages = Number(message[3]);
+
+                if (Number.isFinite(nextPage)) {
+                    this._lastKnownPage = nextPage;
+                }
+                if (Number.isFinite(numberOfPages)) {
+                    this._numberOfPages = numberOfPages;
+                }
+
+                this.props.onHardwarePageTurn && this.props.onHardwarePageTurn(
+                    message[1],
+                    nextPage,
+                    numberOfPages,
+                    message[4] || 'hardware',
+                );
             } else if (message[0] === 'error') {
                 this._onError(new Error(message[1]));
             } else if (message[0] === 'pageSingleTap') {
