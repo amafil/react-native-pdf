@@ -173,12 +173,6 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     }
 
     @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        requestFocus();
-    }
-
-    @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
@@ -481,6 +475,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        requestFocus();
         if (this.isRecycled())
             this.drawPdf();
     }
