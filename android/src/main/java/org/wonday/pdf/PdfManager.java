@@ -65,6 +65,11 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
     @ReactProp(name = "path")
     public void setPath(PdfView pdfView, String path) {
         pdfView.setPath(path);
+        if (path != null && !path.isEmpty()) {
+            // Fabric has been observed to skip the first draw on Android new architecture.
+            // Posting the render when the resolved file path arrives avoids the blank-view state.
+            pdfView.post(pdfView::drawPdf);
+        }
     }
 
     // page start from 1
@@ -100,6 +105,11 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
 
 	@Override
     public void setShowsVerticalScrollIndicator(PdfView view, boolean value) {
+        // NOOP on Android
+    }
+
+    @Override
+    public void setDirectionalLockEnabled(PdfView view, boolean value) {
         // NOOP on Android
     }
 
@@ -245,7 +255,9 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
     @Override
     public void onAfterUpdateTransaction(PdfView pdfView) {
         super.onAfterUpdateTransaction(pdfView);
-        pdfView.drawPdf();
+        if (pdfView != null) {
+            pdfView.post(pdfView::drawPdf);
+        }
     }
 
 }

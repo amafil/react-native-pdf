@@ -121,6 +121,15 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private final Matrix pageRenderMatrix = new Matrix();
     private final float[] pageRenderMatrixValues = new float[9];
 
+    // Viewport snapshot taken in onDetachedFromWindow so the reload triggered by
+    // onAttachedToWindow can restore zoom and scroll offset (restorePath doubles
+    // as the "snapshot valid" flag and guards against the source changing between
+    // detach and re-attach).
+    private String restorePath = null;
+    private float restoreZoom = 1;
+    private float restoreXOffset = 0;
+    private float restoreYOffset = 0;
+
     // used to store the parameters for `super.onSizeChanged`
     private int oldW = 0;
     private int oldH = 0;
@@ -267,6 +276,22 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         float height = pageSize.getHeight();
 
         this.zoomTo(this.scale);
+
+        // Restore the viewport saved in onDetachedFromWindow. The base class jumps
+        // to defaultPage right after this callback returns, so the restore must be
+        // posted to run after that jump or it would be overwritten.
+        if (this.restorePath != null && this.restorePath.equals(this.path)) {
+            final float zoom = this.restoreZoom;
+            final float xOffset = this.restoreXOffset;
+            final float yOffset = this.restoreYOffset;
+            this.restorePath = null;
+            this.post(() -> {
+                this.zoomTo(zoom);
+                this.moveTo(xOffset, yOffset);
+                this.loadPages();
+            });
+        }
+
         WritableMap event = Arguments.createMap();
 
         //create a new json Object for the TableOfContents
@@ -480,6 +505,21 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             this.drawPdf();
     }
 
+    // The base PDFView recycles the document (zoom, offset, render state) whenever
+    // the view leaves the window — e.g. while another screen is stacked over this
+    // one on Android. Snapshot the viewport before that happens; loadComplete
+    // restores it after the re-attach reload.
+    @Override
+    protected void onDetachedFromWindow() {
+        if (!this.isRecycled() && this.path != null) {
+            this.restorePath = this.path;
+            this.restoreZoom = this.getZoom();
+            this.restoreXOffset = this.getCurrentXOffset();
+            this.restoreYOffset = this.getCurrentYOffset();
+        }
+        super.onDetachedFromWindow();
+    }
+
     private int getPdfPageCount(File pdfFile) throws IOException {
         ParcelFileDescriptor fileDescriptor =
                 ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY);
@@ -664,6 +704,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
     public void setScale(float scale) {
         this.scale = scale;
+        if (!this.isRecycled()) {
+            this.zoomTo(this.scale);
+        }
     }
 
     public void setMinScale(float minScale) {

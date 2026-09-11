@@ -159,12 +159,10 @@ using namespace facebook::react;
 {
     const auto &newProps = *std::static_pointer_cast<const RNPDFPdfViewProps>(props);
     NSMutableArray<NSString *> *updatedPropNames = [NSMutableArray new];
-    {
-        NSString *newPath = RCTNSStringFromStringNilIfEmpty(newProps.path);
-        if (_path != newPath && ![_path isEqualToString:newPath]) {
-            _path = newPath;
-            [updatedPropNames addObject:@"path"];
-        }
+    NSString *newPath = RCTNSStringFromStringNilIfEmpty(newProps.path);
+    if (_path != newPath && ![_path isEqualToString:newPath]) {
+        _path = newPath;
+        [updatedPropNames addObject:@"path"];
     }
     if (_page != newProps.page) {
         _page = newProps.page;
@@ -256,6 +254,10 @@ using namespace facebook::react;
     if (_showsVerticalScrollIndicator != newProps.showsVerticalScrollIndicator) {
         _showsVerticalScrollIndicator = newProps.showsVerticalScrollIndicator;
         [updatedPropNames addObject:@"showsVerticalScrollIndicator"];
+    }
+    if (_directionalLockEnabled != newProps.directionalLockEnabled) {
+        _directionalLockEnabled = newProps.directionalLockEnabled;
+        [updatedPropNames addObject:@"directionalLockEnabled"];
     }
 
     if (_scrollEnabled != newProps.scrollEnabled) {
@@ -386,6 +388,7 @@ using namespace facebook::react;
     _singlePage = NO;
     _showsHorizontalScrollIndicator = YES;
     _showsVerticalScrollIndicator = YES;
+    _directionalLockEnabled = NO;
     _scrollEnabled = YES;
     _annotationInkColor = @"#111111";
     _annotationInkThickness = 2.0f;
@@ -644,10 +647,7 @@ using namespace facebook::react;
             
                 // decode file path
                 NSString *decodedPath = (__bridge_transfer NSString *)CFURLCreateStringByReplacingPercentEscapes(NULL, (CFStringRef)_path, CFSTR(""));
-                if (decodedPath != nil) {
-                    _path = decodedPath;
-                }
-                NSURL *fileURL = [NSURL fileURLWithPath:_path];
+                NSURL *fileURL = [NSURL fileURLWithPath:decodedPath];
                 _pdfDocument = [[PDFDocument alloc] initWithURL:fileURL];
             }
 
@@ -790,8 +790,8 @@ using namespace facebook::react;
             }
         }
 
-        if (_pdfDocument && ([changedProps containsObject:@"path"] || [changedProps containsObject:@"showsHorizontalScrollIndicator"] || [changedProps containsObject:@"showsVerticalScrollIndicator"])) {
-            [self setScrollIndicators:self horizontal:_showsHorizontalScrollIndicator vertical:_showsVerticalScrollIndicator depth:0];
+        if (_pdfDocument && ([changedProps containsObject:@"path"] || [changedProps containsObject:@"enablePaging"] || [changedProps containsObject:@"showsHorizontalScrollIndicator"] || [changedProps containsObject:@"showsVerticalScrollIndicator"] || [changedProps containsObject:@"directionalLockEnabled"])) {
+            [self configureScrollViews:self horizontal:_showsHorizontalScrollIndicator vertical:_showsVerticalScrollIndicator directionalLockEnabled:_directionalLockEnabled depth:0];
         }
 
         if ([changedProps containsObject:@"path"] ||
@@ -1331,6 +1331,8 @@ using namespace facebook::react;
     longPressRecognizer.allowableMovement=100;
     // Important: The duration must be long enough to allow taps but not longer than the period in which view opens the magnifying glass
     longPressRecognizer.minimumPressDuration=0.3;
+    // Without a delegate this recognizer excludes PDFKit's own long press, which is what starts a text selection
+    longPressRecognizer.delegate = self;
 
     [self addGestureRecognizer:longPressRecognizer];
     _longPressRecognizer = longPressRecognizer;
@@ -1380,7 +1382,7 @@ using namespace facebook::react;
     return !_singlePage;
 }
 
-- (void)setScrollIndicators:(UIView *)view horizontal:(BOOL)horizontal vertical:(BOOL)vertical depth:(int)depth {
+- (void)configureScrollViews:(UIView *)view horizontal:(BOOL)horizontal vertical:(BOOL)vertical directionalLockEnabled:(BOOL)directionalLockEnabled depth:(int)depth {
     // max depth, prevent infinite loop
     if (depth > 10) {
         return;
@@ -1388,12 +1390,13 @@ using namespace facebook::react;
     
     if ([view isKindOfClass:[UIScrollView class]]) {
         UIScrollView *scrollView = (UIScrollView *)view;
+        scrollView.directionalLockEnabled = directionalLockEnabled;
         scrollView.showsHorizontalScrollIndicator = horizontal;
         scrollView.showsVerticalScrollIndicator = vertical;
     }
     
     for (UIView *subview in view.subviews) {
-        [self setScrollIndicators:subview horizontal:horizontal vertical:vertical depth:depth + 1];
+        [self configureScrollViews:subview horizontal:horizontal vertical:vertical directionalLockEnabled:directionalLockEnabled depth:depth + 1];
     }
 }
 

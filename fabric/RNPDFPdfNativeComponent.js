@@ -23,6 +23,7 @@
    enableAnnotationRendering: ?boolean,
    showsHorizontalScrollIndicator: ?boolean,
    showsVerticalScrollIndicator: ?boolean,
+   directionalLockEnabled: ?boolean,
    scrollEnabled: ?boolean,
    enableAntialiasing: ?boolean,
    enableDoubleTapZoom: ?boolean,
