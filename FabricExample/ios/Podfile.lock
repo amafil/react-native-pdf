@@ -1778,7 +1778,7 @@ PODS:
     - Yoga
   - react-native-orientation-locker (1.7.0):
     - React-Core
-  - react-native-pdf (6.7.7):
+  - react-native-pdf (7.0.3):
     - boost
     - DoubleConversion
     - fast_float
@@ -2680,7 +2680,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: 1ead4fe154df3b1ba34b5a9e35ef3c4bdfa72ccb
   react-native-blob-util: e2162ce4757849682559754bca954b65dc7eeb2f
   react-native-orientation-locker: cc6f357b289a2e0dd2210fea0c52cb8e0727fdaa
-  react-native-pdf: c586da0d19c14e6d859e62bf957851687fba0f25
+  react-native-pdf: edc236298f13f1609e42d41e45b8b6ea88ed10f9
   react-native-safe-area-context: c6e2edd1c1da07bdce287fa9d9e60c5f7b514616
   React-NativeModulesApple: eff2eba56030eb0d107b1642b8f853bc36a833ac
   React-oscompat: b12c633e9c00f1f99467b1e0e0b8038895dae436
@@ -2717,4 +2717,4 @@ SPEC CHECKSUMS:
 
 PODFILE CHECKSUM: 25c4a61a446ea222280eb1884fb8614b5e062b6e
 
-COCOAPODS: 1.15.2
+COCOAPODS: 1.16.2
