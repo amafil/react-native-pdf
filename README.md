@@ -171,6 +171,16 @@ react-native run-ios
 <details>
   <summary>ChangeLog details</summary>
 
+v7.0.5
+1. Security: upgrade shell-quote to 1.8.4 to address CVE-2026-9277 (#1034)
+2. Fixed: restore zoom and scroll offset on Android when the view is re-attached to the window (#1028)
+3. Fixed(ios): allow PDFKit long-press to start text selection (#1032)
+4. Fixed(download): restore missing fetch() call; await temp-file unlink+cp to avoid ENOENT race and unhandled rejection; expose download HTTP status (#1019, #1020, #1031)
+5. Fixed(ios): return NO from `PdfManager` `requiresMainQueueSetup` (#1027)
+6. Fixed: avoid loading legacy PdfView on Fabric path (#1022)
+7. Fixed: flow type and stylesheet import (#678)
+8. Chore(deps): bump example deps in FabricExample (`json`, `concurrent-ruby`) (#1029,#1025)
+
 v7.0.4
 1. Fixed: Android PDF crash: IllegalStateException: Already closed (#989) (#999)
 2. Fixed: scrollTop on initial render on iOS (#1001)
@@ -331,6 +341,25 @@ const styles = StyleSheet.create({
 
 ```
 
+#### Enabling transformFile
+
+If the pdf file needs to be transformed before it is displayed (e.g. when the stored or downloaded file is encrypted), set the `transformFile` prop to `true`. The transformation itself is performed by `react-native-blob-util`, so you must set a file transformer on that library first — see [setting a file transformer](https://github.com/RonRadtke/react-native-blob-util/#setting-a-file-transformer) in the `react-native-blob-util` documentation.
+
+```js
+<Pdf
+    source={source}
+    transformFile={true}
+    onLoadComplete={(numberOfPages,filePath) => {
+        console.log(`Number of pages: ${numberOfPages}`);
+    }}
+    onError={(error) => {
+        console.log(error);
+    }}
+    style={styles.pdf}/>
+```
+
+Note: when `transformFile` is enabled, the transformed file is written to a separate `.view` file, so the original file on disk stays in its transformed (e.g. encrypted) form.
+
 
 ### Configuration
 
@@ -344,6 +373,7 @@ const styles = StyleSheet.create({
 | horizontal                     |                             bool                              |          false           | draw page direction, if you want to listen the orientation change, you can use [[react-native-orientation-locker]](https://github.com/wonday/react-native-orientation-locker) | ✔   | ✔       | ✔                           | <3.0                     |
 | showsHorizontalScrollIndicator |                             bool                              |           true           | shows or hides the horizontal scroll bar indicator on iOS                                                                                                                     | ✔   |         |                             | 6.6                      |
 | showsVerticalScrollIndicator   |                             bool                              |           true           | shows or hides the vertical scroll bar indicator on iOS                                                                                                                       | ✔   |         |                             | 6.6                      |
+| directionalLockEnabled         |                             bool                              |          false           | locks scrolling to the dominant axis of a drag on iOS; leave disabled for diagonal panning                                                                                    | ✔   |         |                             | 7.0.6                    |
 | scrollEnabled   |                             bool                              |           true           | enable or disable scroll                                                                                                                       | ✔   |         |                             | 6.6                      |
 | fitWidth                       |                             bool                              |          false           | if true fit the width of view, can not use fitWidth=true together with scale                                                                                                  | ✔   | ✔       | ✔                           | <3.0, abandoned from 3.0 |
 | fitPolicy                      |                            number                             |            2             | 0:fit width, 1:fit height, 2:fit both(default)                                                                                                                                | ✔   | ✔       | ✔                           | 3.0                      |
@@ -359,6 +389,7 @@ const styles = StyleSheet.create({
 | enableDoubleTapZoom            |                             bool                              |           true           | Enable double tap to zoom gesture                                                                                                                                             | ✔   | ✔       | ✖                           | 6.8.0                    |
 | trustAllCerts                  |                             bool                              |           true           | Allow connections to servers with self-signed certification                                                                                                                   | ✔   | ✔       | ✖                           | 6.0.?                    |
 | singlePage                     |                             bool                              |          false           | Only show first page, useful for thumbnail views                                                                                                                              | ✔   | ✔       | ✔                           | 6.2.1                    |
+| transformFile                  |                             bool                              |          false           | Transform the pdf file with the file transformer set on `react-native-blob-util` before displaying it (e.g. to display an encrypted pdf). Requires a file transformer, see [setting a file transformer](https://github.com/RonRadtke/react-native-blob-util/#setting-a-file-transformer) | ✔   | ✔       | ✖                           | 7.0.6                    |
 | onLoadProgress                 |                       function(percent)                       |           null           | callback when loading, return loading progress (0-1)                                                                                                                          | ✔   | ✔       | ✖                           | <3.0                     |
 | onLoadComplete                 | function(numberOfPages, path, {width, height}, tableContents) |           null           | callback when pdf load completed, return total page count, pdf local/cache path, {width,height} and table of contents                                                         | ✔   | ✔       | ✔ but without tableContents | <3.0                     |
 | onPageChanged                  |                 function(page,numberOfPages)                  |           null           | callback when page changed ,return current page and total page count                                                                                                          | ✔   | ✔       | ✔                           | <3.0                     |
