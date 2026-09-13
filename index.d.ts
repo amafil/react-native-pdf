@@ -27,6 +27,71 @@ export type Source = {
     method?: string;
 };
 
+export type AnnotationRotation = 0 | 90 | 180 | 270;
+export type AnnotationIdMode = 'auto' | 'manual';
+export type AnnotationTool = 'select' | 'ink' | 'text';
+export type AnnotationTextAlign = 'left' | 'center' | 'right';
+
+export type AnnotationPoint = {
+    x: number,
+    y: number,
+    pressure?: number,
+};
+
+export type AnnotationBounds = {
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+};
+
+export type AnnotationStyle = {
+    color?: string,
+    thickness?: number,
+    fontFamily?: string,
+    fontSize?: number,
+    textAlign?: AnnotationTextAlign,
+    rotation?: AnnotationRotation,
+};
+
+export type AnnotationBase = {
+    id: string,
+    page: number,
+    locked?: boolean,
+    createdAt?: number,
+    updatedAt?: number,
+};
+
+export type InkAnnotation = AnnotationBase & {
+    type: 'ink',
+    points: AnnotationPoint[],
+    style?: AnnotationStyle,
+};
+
+export type TextAnnotation = AnnotationBase & {
+    type: 'text',
+    bounds: AnnotationBounds,
+    text: string,
+    style?: AnnotationStyle,
+};
+
+export type MarkupAnnotation = AnnotationBase & {
+    type: 'highlight',
+    bounds: AnnotationBounds,
+    style?: AnnotationStyle,
+};
+
+export type Annotation = InkAnnotation | TextAnnotation | MarkupAnnotation;
+
+export type AnnotationDocument = {
+    editable?: boolean,
+    idMode?: AnnotationIdMode,
+    annotations: Annotation[],
+};
+
+export type PageTurnDirection = 'previous' | 'next';
+export type HardwarePageTurnSource = 'hardware' | 'command';
+
 export type PdfError = Error & {
     status?: number;
 };
@@ -64,6 +129,34 @@ export interface PdfProps {
     enableAnnotationRendering?: boolean,
     enableDoubleTapZoom?: boolean;
     /**
+     * Initial annotation document to render in the overlay.
+     */
+    annotations?: AnnotationDocument,
+    /**
+     * Enable annotation editing mode.
+     */
+    annotationMode?: boolean,
+    /**
+     * Active tool used while annotation editing is enabled.
+     */
+    annotationTool?: AnnotationTool,
+    /**
+     * Allow in-place annotation edits.
+     */
+    annotationEditable?: boolean,
+    /**
+     * Controls how annotation IDs are generated and preserved.
+     */
+    annotationIdMode?: AnnotationIdMode,
+    /**
+     * Default color applied to newly created ink annotations.
+     */
+    annotationInkColor?: string,
+    /**
+     * Default thickness applied to newly created ink annotations.
+     */
+    annotationInkThickness?: number,
+    /**
      * Only works on iOS. Defaults to `true`.
      */
     enableTextSelection?: boolean;
@@ -84,13 +177,30 @@ export interface PdfProps {
     onPageSingleTap?: (page: number, x: number, y: number) => void,
     onScaleChanged?: (scale: number) => void,
     onPressLink?: (url: string) => void,
+    onHardwarePageTurn?: (direction: PageTurnDirection, page: number, numberOfPages: number, source: HardwarePageTurnSource) => void,
     onAutoScrollEnd?: () => void,
+    onAnnotationStrokeEnd?: () => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
-    onAutoScrollEnd?: () => void,
 }
 
 export interface PdfRef {
     setPage(pageNumber: number): void
+    /**
+     * Resolves with the current annotation document serialized by native code.
+     */
+    saveAnnotations(): Promise<AnnotationDocument>
+    /**
+     * Deletes the currently selected custom annotation.
+     */
+    deleteSelectedAnnotation(): void
+    /**
+     * Deletes all custom annotations in the current overlay draft.
+     */
+    deleteAllAnnotations(): void
+    /**
+     * Moves one page backward or forward using the same navigation rules as native hardware page-turn input.
+     */
+    handlePageTurn(direction: PageTurnDirection): boolean
     /**
      * Start smooth automatic vertical scrolling using the display refresh rate.
      * @param dpPerSecond - Scroll speed in density-independent pixels (dp) per second (default: 15). Produces consistent physical speed across screen densities.

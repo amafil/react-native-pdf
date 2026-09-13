@@ -4,8 +4,7 @@
  */
  'use strict';
 
- import codegenNativeComponent from 'react-native/Libraries/Utilities/codegenNativeComponent';
- import codegenNativeCommands from 'react-native/Libraries/Utilities/codegenNativeCommands';
+ import {codegenNativeComponent, codegenNativeCommands} from 'react-native';
  
  type ChangeEvent = $ReadOnly<{|
    message: ?string,
@@ -31,6 +30,13 @@
    fitPolicy: ?Int32,
    spacing: ?Int32,
    password: ?string,
+  annotations: ?string,
+  annotationMode: ?boolean,
+  annotationTool: ?string,
+  annotationEditable: ?boolean,
+  annotationIdMode: ?string,
+  annotationInkColor: ?string,
+  annotationInkThickness: ?Float,
    onChange: ?BubblingEventHandler<ChangeEvent>,
    singlePage: ?boolean,
  |}>;
@@ -48,10 +54,19 @@
   +stopNativeAutoScroll: (
     viewRef: React.ElementRef<ComponentType>,
   ) => void;
+  +saveAnnotations: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
+  +deleteSelectedAnnotation: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
+  +deleteAllAnnotations: (
+    viewRef: React.ElementRef<ComponentType>,
+  ) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
-  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll'],
+  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll', 'saveAnnotations', 'deleteSelectedAnnotation', 'deleteAllAnnotations'],
 });
 
  export default codegenNativeComponent<NativeProps>('RNPDFPdfView');

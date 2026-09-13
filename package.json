@@ -1,6 +1,6 @@
 {
     "name": "@amafil/react-native-pdf-toolkit",
-    "version": "1.1.17",
+    "version": "1.1.22",
     "summary": "A react native PDF view component",
     "description": "A react native PDF view component, support ios and android platform",
     "main": "index.js",
@@ -28,13 +28,13 @@
         "url": "https://github.com/amafil/react-native-pdf/issues"
     },
     "dependencies": {
+        "@babel/runtime": "^7.20.1",
         "crypto-js": "4.2.0",
-        "deprecated-react-native-prop-types": "^2.3.0"
+        "deprecated-react-native-prop-types": "^2.3.0",
+        "prop-types": "^15.7.2"
     },
     "devDependencies": {
-        "@babel/core": "^7.20.2",
-        "@babel/runtime": "^7.20.1",
-        "prop-types": "^15.7.2"
+        "@babel/core": "^7.20.2"
     },
     "peerDependencies": {
         "react": "*",
@@ -49,6 +49,7 @@
         "index.d.ts",
         "index.js",
         "index.js.flow",
+        "annotationDocumentUtils.js",
         "PdfManager.js",
         "PdfPageView.js",
         "PdfView.js",

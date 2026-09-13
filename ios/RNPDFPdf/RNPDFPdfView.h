@@ -35,6 +35,7 @@ UIView
 - (instancetype)initWithBridge:(RCTBridge *)bridge;
 - (void)startAutoScroll:(CGFloat)pixels resumeDelay:(NSTimeInterval)resumeDelay;
 - (void)stopAutoScroll;
+- (BOOL)handleHardwarePageTurn:(NSString *)direction source:(NSString *)source;
 
 @property(nonatomic, strong) NSString *path;
 @property(nonatomic) int page;
@@ -50,12 +51,23 @@ UIView
 @property(nonatomic) BOOL enableRTL;
 @property(nonatomic) BOOL enableAnnotationRendering;
 @property(nonatomic) BOOL enableDoubleTapZoom;
+@property(nonatomic, strong) NSString *annotations;
+@property(nonatomic) BOOL annotationMode;
+@property(nonatomic, strong) NSString *annotationTool;
+@property(nonatomic) BOOL annotationEditable;
+@property(nonatomic, strong) NSString *annotationIdMode;
+@property(nonatomic, strong) NSString *annotationInkColor;
+@property(nonatomic) float annotationInkThickness;
 @property(nonatomic) int fitPolicy;
 @property(nonatomic) int spacing;
 @property(nonatomic, strong) NSString *password;
 @property(nonatomic) BOOL singlePage;
 
 @property(nonatomic, copy) RCTBubblingEventBlock onChange;
+
+- (void)saveAnnotations;
+- (void)deleteSelectedAnnotation;
+- (void)deleteAllAnnotations;
 
 @property(nonatomic, strong) NSString *selectedText;
 @property(nonatomic) BOOL enableTextSelection;

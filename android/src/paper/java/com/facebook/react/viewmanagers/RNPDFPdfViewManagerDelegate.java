@@ -65,6 +65,27 @@ public class RNPDFPdfViewManagerDelegate<T extends View, U extends BaseViewManag
       case "enableDoubleTapZoom":
         mViewManager.setEnableDoubleTapZoom(view, value == null ? false : (boolean) value);
         break;
+      case "annotations":
+        mViewManager.setAnnotations(view, value == null ? null : (String) value);
+        break;
+      case "annotationMode":
+        mViewManager.setAnnotationMode(view, value == null ? false : (boolean) value);
+        break;
+      case "annotationTool":
+        mViewManager.setAnnotationTool(view, value == null ? null : (String) value);
+        break;
+      case "annotationEditable":
+        mViewManager.setAnnotationEditable(view, value == null ? false : (boolean) value);
+        break;
+      case "annotationIdMode":
+        mViewManager.setAnnotationIdMode(view, value == null ? null : (String) value);
+        break;
+      case "annotationInkColor":
+        mViewManager.setAnnotationInkColor(view, value == null ? null : (String) value);
+        break;
+      case "annotationInkThickness":
+        mViewManager.setAnnotationInkThickness(view, value == null ? 0f : ((Double) value).floatValue());
+        break;
       case "enableAntialiasing":
         mViewManager.setEnableAntialiasing(view, value == null ? false : (boolean) value);
         break;
@@ -89,6 +110,15 @@ public class RNPDFPdfViewManagerDelegate<T extends View, U extends BaseViewManag
     switch (commandName) {
       case "setNativePage":
         mViewManager.setNativePage(view, args.getInt(0));
+        break;
+      case "saveAnnotations":
+        mViewManager.saveAnnotations(view);
+        break;
+      case "deleteSelectedAnnotation":
+        mViewManager.deleteSelectedAnnotation(view);
+        break;
+      case "deleteAllAnnotations":
+        mViewManager.deleteAllAnnotations(view);
         break;
     }
   }

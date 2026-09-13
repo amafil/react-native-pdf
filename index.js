@@ -22,6 +22,11 @@ import PdfViewNativeComponent, {
   } from './fabric/RNPDFPdfNativeComponent';
 import ReactNativeBlobUtil from 'react-native-blob-util'
 const SHA1 = require('crypto-js/sha1');
+import {
+        joinAnnotationMessagePayload,
+        parseAnnotationMessagePayload,
+        stringifyAnnotationDocument,
+} from './annotationDocumentUtils';
 
 let PdfView;
 
@@ -66,6 +71,13 @@ export default class Pdf extends Component {
         fitPolicy: PropTypes.number,
         trustAllCerts: PropTypes.bool,
         singlePage: PropTypes.bool,
+        annotations: PropTypes.object,
+        annotationMode: PropTypes.bool,
+        annotationTool: PropTypes.oneOf(['select', 'ink', 'text', 'highlight']),
+        annotationEditable: PropTypes.bool,
+        annotationIdMode: PropTypes.oneOf(['auto', 'manual']),
+        annotationInkColor: PropTypes.string,
+        annotationInkThickness: PropTypes.number,
         transformFile: PropTypes.bool,
         onLoadComplete: PropTypes.func,
         onPageChanged: PropTypes.func,
@@ -73,6 +85,7 @@ export default class Pdf extends Component {
         onPageSingleTap: PropTypes.func,
         onScaleChanged: PropTypes.func,
         onPressLink: PropTypes.func,
+        onHardwarePageTurn: PropTypes.func,
         onAutoScrollEnd: PropTypes.func,
         enableTextSelection: PropTypes.bool,
         onTextSelectionChange: PropTypes.func,
@@ -107,6 +120,13 @@ export default class Pdf extends Component {
         trustAllCerts: true,
         usePDFKit: true,
         singlePage: false,
+        annotations: null,
+        annotationMode: false,
+        annotationTool: 'select',
+        annotationEditable: true,
+        annotationIdMode: 'auto',
+        annotationInkColor: '#111111',
+        annotationInkThickness: 2,
         transformFile: false,
         onLoadProgress: (percent) => {
         },
@@ -121,6 +141,8 @@ export default class Pdf extends Component {
         onScaleChanged: (scale) => {
         },
         onPressLink: (url) => {
+        },
+        onHardwarePageTurn: (direction, page, numberOfPages, source) => {
         },
         enableTextSelection: true,
         onTextSelectionChange: (event) => {
@@ -139,6 +161,10 @@ export default class Pdf extends Component {
         };
 
         this.lastRNBFTask = null;
+        this._annotationSavePromise = null;
+        this._isAutoScrollActive = false;
+        this._lastKnownPage = Number.isFinite(props.page) ? props.page : 1;
+        this._numberOfPages = 0;
         this.lastViewFile = null;
     }
 
@@ -170,6 +196,10 @@ export default class Pdf extends Component {
     componentWillUnmount() {
         this._mounted = false;
         this.stopAutoScroll();
+        if (this._annotationSavePromise) {
+            this._annotationSavePromise.reject(new Error('Pdf unmounted before annotation save completed'));
+            this._annotationSavePromise = null;
+        }
         if (this.lastRNBFTask) {
             // this.lastRNBFTask.cancel(err => {
             // });
@@ -440,6 +470,8 @@ export default class Pdf extends Component {
         if ( (pageNumber === null) || (isNaN(pageNumber)) ) {
             throw new Error('Specified pageNumber is not a number');
         }
+
+        this._lastKnownPage = Number(pageNumber);
         if (!!global?.nativeFabricUIManager ) {
             if (this._root) {
                 PdfViewCommands.setNativePage(
@@ -453,6 +485,104 @@ export default class Pdf extends Component {
             });
           }
 
+    }
+
+    handlePageTurn(direction) {
+        if (direction !== 'previous' && direction !== 'next') {
+            throw new Error('Specified direction must be either "previous" or "next"');
+        }
+
+        const currentPage = Number.isFinite(this._lastKnownPage)
+            ? this._lastKnownPage
+            : (Number.isFinite(this.props.page) ? this.props.page : 1);
+        const pageDelta = direction === 'next' ? 1 : -1;
+        const hasKnownPageCount = Number.isFinite(this._numberOfPages) && this._numberOfPages > 0;
+        const nextPage = hasKnownPageCount
+            ? Math.max(1, Math.min(this._numberOfPages, currentPage + pageDelta))
+            : Math.max(1, currentPage + pageDelta);
+
+        if (nextPage === currentPage) {
+            return false;
+        }
+
+        if (this._isAutoScrollActive) {
+            this.stopAutoScroll();
+            this.props.onAutoScrollEnd && this.props.onAutoScrollEnd();
+        }
+
+        this.setPage(nextPage);
+        this.props.onHardwarePageTurn && this.props.onHardwarePageTurn(
+            direction,
+            nextPage,
+            hasKnownPageCount ? this._numberOfPages : nextPage,
+            'command',
+        );
+
+        return true;
+    }
+
+    saveAnnotations() {
+        if (this._annotationSavePromise) {
+            return Promise.reject(new Error('An annotation save is already in progress'));
+        }
+
+        return new Promise((resolve, reject) => {
+            if (!this._root) {
+                reject(new Error('Pdf is not mounted'));
+                return;
+            }
+
+            this._annotationSavePromise = {resolve, reject};
+
+            if (!!global?.nativeFabricUIManager) {
+                if (PdfViewCommands.saveAnnotations) {
+                    PdfViewCommands.saveAnnotations(this._root);
+                } else {
+                    this._annotationSavePromise = null;
+                    reject(new Error('Annotation save command is not available'));
+                }
+            } else {
+                const ReactNative = require('react-native');
+                try {
+                    ReactNative.UIManager.dispatchViewManagerCommand(
+                        ReactNative.findNodeHandle(this._root),
+                        'saveAnnotations',
+                        [],
+                    );
+                } catch (error) {
+                    this._annotationSavePromise = null;
+                    reject(error);
+                }
+            }
+        });
+    }
+
+    deleteSelectedAnnotation() {
+        this._dispatchAnnotationCommand('deleteSelectedAnnotation', PdfViewCommands.deleteSelectedAnnotation);
+    }
+
+    deleteAllAnnotations() {
+        this._dispatchAnnotationCommand('deleteAllAnnotations', PdfViewCommands.deleteAllAnnotations);
+    }
+
+    _dispatchAnnotationCommand(commandName, fabricCommand) {
+        if (!this._root) {
+            return;
+        }
+
+        if (!!global?.nativeFabricUIManager) {
+            if (fabricCommand) {
+                fabricCommand(this._root);
+            }
+            return;
+        }
+
+        const ReactNative = require('react-native');
+        ReactNative.UIManager.dispatchViewManagerCommand(
+            ReactNative.findNodeHandle(this._root),
+            commandName,
+            [],
+        );
     }
 
     startAutoScroll( dpPerSecond = 15, resumeDelay = 3000 ) {
@@ -523,6 +653,7 @@ export default class Pdf extends Component {
                 message[4] = message.splice(4).join('|');
             }
             if (message[0] === 'loadComplete') {
+                this._numberOfPages = Number(message[1]);
                 let tableContents;
                 try {
                     tableContents = message[4]&&JSON.parse(message[4]);
@@ -536,7 +667,26 @@ export default class Pdf extends Component {
                 tableContents
                 );
             } else if (message[0] === 'pageChanged') {
+                this._lastKnownPage = Number(message[1]);
+                this._numberOfPages = Number(message[2]);
                 this.props.onPageChanged && this.props.onPageChanged(Number(message[1]), Number(message[2]));
+            } else if (message[0] === 'pageTurn') {
+                const nextPage = Number(message[2]);
+                const numberOfPages = Number(message[3]);
+
+                if (Number.isFinite(nextPage)) {
+                    this._lastKnownPage = nextPage;
+                }
+                if (Number.isFinite(numberOfPages)) {
+                    this._numberOfPages = numberOfPages;
+                }
+
+                this.props.onHardwarePageTurn && this.props.onHardwarePageTurn(
+                    message[1],
+                    nextPage,
+                    numberOfPages,
+                    message[4] || 'hardware',
+                );
             } else if (message[0] === 'error') {
                 this._onError(new Error(message[1]));
             } else if (message[0] === 'pageSingleTap') {
@@ -548,6 +698,22 @@ export default class Pdf extends Component {
             } else if (message[0] === 'autoScrollEnd') {
                 this._isAutoScrollActive = false;
                 this.props.onAutoScrollEnd && this.props.onAutoScrollEnd();
+            } else if (message[0] === 'annotationSaveComplete') {
+                const annotationDocument = parseAnnotationMessagePayload(message);
+
+                if (this._annotationSavePromise) {
+                    this._annotationSavePromise.resolve(annotationDocument);
+                    this._annotationSavePromise = null;
+                }
+            } else if (message[0] === 'annotationSaveError') {
+                const annotationError = joinAnnotationMessagePayload(message);
+
+                if (this._annotationSavePromise) {
+                    this._annotationSavePromise.reject(new Error(annotationError || 'Annotation save failed'));
+                    this._annotationSavePromise = null;
+                }
+            } else if (message[0] === 'strokeEnd') {
+                this.props.onAnnotationStrokeEnd && this.props.onAnnotationStrokeEnd();
             }
         }
 
@@ -559,7 +725,13 @@ export default class Pdf extends Component {
 
     };
 
+    _getNativeAnnotations = () => {
+        return stringifyAnnotationDocument(this.props.annotations, this._onError);
+    };
+
     render() {
+        const nativeAnnotations = this._getNativeAnnotations();
+
         if (Platform.OS === "android" || Platform.OS === "ios" || Platform.OS === "windows") {
                 return (
                     <View style={[this.props.style,{overflow: 'hidden'}]}>
@@ -575,6 +747,7 @@ export default class Pdf extends Component {
                                         <PdfCustom
                                             ref={component => (this._root = component)}
                                             {...this.props}
+                                            annotations={nativeAnnotations}
                                             style={[{flex:1,backgroundColor: '#EEE'}, this.props.style]}
                                             path={this.state.path}
                                             onChange={this._onChange}
@@ -584,6 +757,7 @@ export default class Pdf extends Component {
                                                 <PdfCustom
                                                     ref={component => (this._root = component)}
                                                     {...this.props}
+                                                    annotations={nativeAnnotations}
                                                     style={[{backgroundColor: '#EEE',overflow: 'hidden'}, this.props.style]}
                                                     path={this.state.path}
                                                     onChange={this._onChange}
