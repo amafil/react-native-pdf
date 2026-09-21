@@ -1221,10 +1221,9 @@ using namespace facebook::react;
     }
 
     CGPoint point = [sender locationInView:self];
-    PDFPage *pdfPage = [_pdfDocument pageAtIndex:MAX(0, [_pdfDocument indexForPage:[_pdfView pageForPoint:point nearest:NO]])];
-    if (!pdfPage) {
-        return;
-    }
+    // A gesture can end in the page gap. Still deliver its terminal state so
+    // ink and selection interactions are always closed.
+    PDFPage *pdfPage = [_pdfView pageForPoint:point nearest:NO];
 
     if ([_annotationTool isEqualToString:@"select"]) {
         if (sender.state == UIGestureRecognizerStateBegan) {
@@ -2510,7 +2509,14 @@ static NSString *RNPDFGenerateAnnotationId(void)
 
 - (void)appendInkPointAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
 {
-    if (!_activeInkAnnotation || !page) {
+    if (!_activeInkAnnotation) {
+        return;
+    }
+
+    // Stop at the first page boundary instead of appending points expressed
+    // in another page's coordinate system to the original annotation.
+    if (!page || [_pdfDocument indexForPage:page] + 1 != [_activeInkAnnotation[@"page"] unsignedIntegerValue]) {
+        [self endInk];
         return;
     }
 

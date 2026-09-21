@@ -50,6 +50,7 @@ import io.legere.pdfiumandroid.DefaultLogger;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.facebook.react.uimanager.UIManagerHelper;
 import com.github.barteksc.pdfviewer.PDFView;
+import com.github.barteksc.pdfviewer.RNPdfAutoScroll;
 import com.github.barteksc.pdfviewer.listener.OnPageChangeListener;
 import com.github.barteksc.pdfviewer.listener.OnLoadCompleteListener;
 import com.github.barteksc.pdfviewer.listener.OnErrorListener;
@@ -985,9 +986,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     return true;
                 } else if (action == MotionEvent.ACTION_MOVE) {
                     AnnotationHit hit = hitTest(event.getX(), event.getY());
-                    if (hit != null) {
-                        appendInkPoint(hit, event.getX(), event.getY());
-                    }
+                    appendInkPoint(hit, event.getX(), event.getY());
                     return true;
                 } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                     endInk();
@@ -1504,6 +1503,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return;
             }
 
+            // A stroke belongs to its starting page. Never mix coordinate spaces
+            // when the finger crosses a page edge or the gap between pages.
+            if (hit == null || hit.pageIndex + 1 != activeInkAnnotation.optInt("page", 1)) {
+                endInk();
+                return;
+            }
+
             try {
                 JSONArray points = activeInkAnnotation.optJSONArray("points");
                 if (points == null) {
@@ -1522,6 +1528,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         private void endInk() {
+            if (activeInkAnnotation == null) {
+                return;
+            }
             activeInkAnnotation = null;
             invalidate();
             PdfView.this.notifyOnChangeWithMessage("strokeEnd");
@@ -1985,29 +1994,12 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     // speeds (< ~20 px/s) invisible.
                     accumulatedScrollOffset += autoScrollPixels * elapsedSeconds;
 
-                    float totalHeight = 0;
-                    int pageCount = getPageCount();
-                    for (int i = 0; i < pageCount; i++) {
-                        totalHeight += getPageSize(i).getHeight() * getZoom();
-                    }
-                    totalHeight += spacing * (pageCount - 1) * getZoom();
-                    float maxScroll = totalHeight - getHeight();
-
-                    if (maxScroll <= 0) {
+                    if (RNPdfAutoScroll.scrollTo(PdfView.this, accumulatedScrollOffset)) {
                         stopAutoScroll();
                         dispatchAutoScrollEndEvent();
                         return;
                     }
 
-                    if (accumulatedScrollOffset >= maxScroll) {
-                        moveTo(0, -maxScroll);
-                        stopAutoScroll();
-                        dispatchAutoScrollEndEvent();
-                        return;
-                    }
-
-                    moveTo(0, -accumulatedScrollOffset);
-                    loadPages();
                     Choreographer.getInstance().postFrameCallback(this);
                 }
             };
