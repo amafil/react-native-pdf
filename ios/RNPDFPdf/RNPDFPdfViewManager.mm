@@ -62,7 +62,7 @@ RCT_EXPORT_VIEW_PROPERTY(singlePage, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(enableTextSelection, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(onTextSelectionChange, RCTBubblingEventBlock);
 
-RCT_EXPORT_METHOD(startAutoScroll:(nonnull NSNumber *)reactTag
+RCT_EXPORT_METHOD(startNativeAutoScroll:(nonnull NSNumber *)reactTag
                   dpPerSecond:(double)dpPerSecond
                   resumeDelay:(double)resumeDelay)
 {
@@ -74,7 +74,7 @@ RCT_EXPORT_METHOD(startAutoScroll:(nonnull NSNumber *)reactTag
     }];
 }
 
-RCT_EXPORT_METHOD(stopAutoScroll:(nonnull NSNumber *)reactTag)
+RCT_EXPORT_METHOD(stopNativeAutoScroll:(nonnull NSNumber *)reactTag)
 {
     [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
         RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];

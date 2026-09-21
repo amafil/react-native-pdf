@@ -994,13 +994,17 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     return true;
                 }
             } else if ("text".equals(currentTool)) {
+                if (action == MotionEvent.ACTION_DOWN) {
+                    // Own the gesture so the overlay receives ACTION_UP.
+                    return hitTest(event.getX(), event.getY()) != null;
+                }
                 if (action == MotionEvent.ACTION_UP) {
                     AnnotationHit hit = hitTest(event.getX(), event.getY());
                     if (hit != null) {
                         createTextAnnotation(hit, event.getX(), event.getY());
-                        return true;
                     }
                 }
+                return true;
             }
 
             return false;
