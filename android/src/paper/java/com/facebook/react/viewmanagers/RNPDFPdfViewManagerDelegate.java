@@ -111,11 +111,20 @@ public class RNPDFPdfViewManagerDelegate<T extends View, U extends BaseViewManag
       case "setNativePage":
         mViewManager.setNativePage(view, args.getInt(0));
         break;
+      case "startNativeAutoScroll":
+        mViewManager.startNativeAutoScroll(view, args.getDouble(0), args.getDouble(1));
+        break;
+      case "stopNativeAutoScroll":
+        mViewManager.stopNativeAutoScroll(view);
+        break;
       case "saveAnnotations":
         mViewManager.saveAnnotations(view);
         break;
       case "deleteSelectedAnnotation":
         mViewManager.deleteSelectedAnnotation(view);
+        break;
+      case "undoLastInkStroke":
+        mViewManager.undoLastInkStroke(view);
         break;
       case "deleteAllAnnotations":
         mViewManager.deleteAllAnnotations(view);

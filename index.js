@@ -73,9 +73,11 @@ export default class Pdf extends Component {
         singlePage: PropTypes.bool,
         annotations: PropTypes.object,
         annotationMode: PropTypes.bool,
-        annotationTool: PropTypes.oneOf(['select', 'ink', 'text', 'highlight']),
+        annotationTool: PropTypes.oneOf(['select', 'ink']),
         annotationEditable: PropTypes.bool,
         annotationIdMode: PropTypes.oneOf(['auto', 'manual']),
+        onAnnotationUndoStateChanged: PropTypes.func,
+        onAnnotationStrokeEnd: PropTypes.func,
         annotationInkColor: PropTypes.string,
         annotationInkThickness: PropTypes.number,
         transformFile: PropTypes.bool,
@@ -561,6 +563,10 @@ export default class Pdf extends Component {
         this._dispatchAnnotationCommand('deleteSelectedAnnotation', PdfViewCommands.deleteSelectedAnnotation);
     }
 
+    undoLastInkStroke() {
+        this._dispatchAnnotationCommand('undoLastInkStroke', PdfViewCommands.undoLastInkStroke);
+    }
+
     deleteAllAnnotations() {
         this._dispatchAnnotationCommand('deleteAllAnnotations', PdfViewCommands.deleteAllAnnotations);
     }
@@ -712,6 +718,8 @@ export default class Pdf extends Component {
                     this._annotationSavePromise.reject(new Error(annotationError || 'Annotation save failed'));
                     this._annotationSavePromise = null;
                 }
+            } else if (message[0] === 'annotationUndoStateChanged') {
+                this.props.onAnnotationUndoStateChanged?.({canUndo: message[1] === 'true'});
             } else if (message[0] === 'strokeEnd') {
                 this.props.onAnnotationStrokeEnd && this.props.onAnnotationStrokeEnd();
             }

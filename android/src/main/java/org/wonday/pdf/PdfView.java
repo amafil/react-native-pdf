@@ -35,11 +35,7 @@ import android.graphics.Path;
 import android.graphics.PointF;
 import android.graphics.RectF;
 import android.graphics.pdf.PdfRenderer;
-import android.widget.EditText;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.widget.FrameLayout;
 
 import io.legere.pdfiumandroid.util.Config;
@@ -661,6 +657,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     }
 
     public void setPath(String path) {
+        if (!TextUtils.equals(this.path, path) && annotationOverlayView != null) { annotationOverlayView.resetInkHistory(); }
         this.path = path;
     }
 
@@ -801,10 +798,10 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
     private class AnnotationOverlayView extends FrameLayout {
         private final java.util.ArrayList<JSONObject> draftAnnotations = new java.util.ArrayList<>();
         private JSONObject activeInkAnnotation;
-        private JSONObject activeMarkupAnnotation;
-        private JSONObject activeTextAnnotation;
-        private PointF markupStartNormalized;
-        private EditText activeEditText;
+        private final java.util.ArrayList<String> inkHistory = new java.util.ArrayList<>();
+        private boolean inkReachedPageBoundary;
+        private boolean navigationGesture;
+
         private String selectedAnnotationId;
         private JSONObject activeSelectionAnnotation;
         private String activeSelectionHandle = "body";
@@ -833,17 +830,15 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         void setConfiguration(boolean annotationMode, String annotationTool, boolean annotationEditable, String annotationIdMode, boolean annotationEditingSupported, String annotationInkColor, float annotationInkThickness) {
+            if (annotationModeEnabled != annotationMode) { resetInkHistory(); }
+            if (!annotationEditable || !annotationEditingSupported || !TextUtils.equals(tool, annotationTool)) { cancelInk(); }
             annotationModeEnabled = annotationMode;
-            tool = normalizeAnnotationType(annotationTool == null ? "select" : annotationTool);
+            tool = "ink".equals(annotationTool) ? "ink" : "select";
             editable = annotationEditable;
             idMode = annotationIdMode == null ? "auto" : annotationIdMode;
             supported = annotationEditingSupported;
             inkColor = TextUtils.isEmpty(annotationInkColor) ? "#111111" : annotationInkColor;
             inkThickness = annotationInkThickness > 0f ? annotationInkThickness : 2f;
-
-            if (!annotationModeEnabled || !editable || !supported) {
-                commitTextEditingIfNeeded();
-            }
 
             if (!annotationModeEnabled || !editable || !supported) {
                 clearSelectionInteraction();
@@ -860,7 +855,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         void deleteAllAnnotations() {
-            commitTextEditingIfNeeded();
+
+            resetInkHistory();
             draftAnnotations.clear();
             selectedAnnotationId = null;
             clearSelectionInteraction();
@@ -868,12 +864,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         void replaceAnnotations(String json) {
-            draftAnnotations.clear();
-            clearSelectionInteraction();
-            if (TextUtils.isEmpty(json)) {
-                invalidate();
-                return;
-            }
+            java.util.ArrayList<JSONObject> incoming = new java.util.ArrayList<>();
+            if (TextUtils.isEmpty(json)) { json = "[]"; }
 
             try {
                 JSONArray annotationsArray;
@@ -890,27 +882,55 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
 
                 for (int i = 0; i < annotationsArray.length(); i++) {
                     JSONObject source = annotationsArray.optJSONObject(i);
-                    if (source == null) {
+                    if (source == null || !"ink".equals(source.optString("type"))) {
                         continue;
                     }
 
                     JSONObject annotation = new JSONObject(source.toString());
-                    String type = normalizeAnnotationType(annotation.optString("type", null));
-                    if (!TextUtils.isEmpty(type)) {
-                        annotation.put("type", type);
-                    }
                     if (!annotation.has("id")) {
                         annotation.put("id", nextLocalAnnotationId());
                     }
                     if (!annotation.has("page")) {
                         annotation.put("page", 1);
                     }
-                    draftAnnotations.add(annotation);
+                    incoming.add(annotation);
                 }
             } catch (JSONException ignored) {
             }
 
+            // JSONObject.toString() key order is not stable across the JS round trip.
+            if (jsonEqual(new JSONArray(draftAnnotations), new JSONArray(incoming))) { return; }
+            resetInkHistory();
+            clearSelectionInteraction();
+            selectedAnnotationId = null;
+            draftAnnotations.clear();
+            draftAnnotations.addAll(incoming);
             invalidate();
+        }
+
+        private boolean jsonEqual(Object left, Object right) {
+            if (left instanceof JSONObject && right instanceof JSONObject) {
+                JSONObject a = (JSONObject) left, b = (JSONObject) right;
+                if (a.length() != b.length()) { return false; }
+                java.util.Iterator<String> keys = a.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    if (!b.has(key) || !jsonEqual(a.opt(key), b.opt(key))) { return false; }
+                }
+                return true;
+            }
+            if (left instanceof JSONArray && right instanceof JSONArray) {
+                JSONArray a = (JSONArray) left, b = (JSONArray) right;
+                if (a.length() != b.length()) { return false; }
+                for (int i = 0; i < a.length(); i++) {
+                    if (!jsonEqual(a.opt(i), b.opt(i))) { return false; }
+                }
+                return true;
+            }
+            if (left instanceof Number && right instanceof Number) {
+                return Double.compare(((Number) left).doubleValue(), ((Number) right).doubleValue()) == 0;
+            }
+            return left == null ? right == null : left.equals(right);
         }
 
         String serializeDocument() {
@@ -926,32 +946,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         @Override
-        public boolean dispatchTouchEvent(MotionEvent event) {
-            if (activeEditText != null && event.getActionMasked() == MotionEvent.ACTION_DOWN && !isPointInsideView(event.getX(), event.getY(), activeEditText)) {
-                commitTextEditingIfNeeded();
-            }
-
-            return super.dispatchTouchEvent(event);
-        }
-
-        @Override
-        public boolean onInterceptTouchEvent(MotionEvent ev) {
-            if (!annotationModeEnabled || !editable || !supported) {
-                return false;
-            }
-
-            if (ev.getPointerCount() > 1) {
-                commitTextEditingIfNeeded();
-                clearSelectionInteraction();
-                return false;
-            }
-
-            String currentTool = tool == null ? "select" : tool;
-            if ("select".equals(currentTool)) {
-                return hitTestAnnotation(ev.getX(), ev.getY(), true) != null;
-            }
-
-            return !TextUtils.isEmpty(currentTool);
+        public boolean onInterceptTouchEvent(MotionEvent event) {
+            return annotationModeEnabled && editable && supported;
         }
 
         private boolean dispatchToParentPdfView(MotionEvent event) {
@@ -964,10 +960,23 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return false;
             }
 
-            if (event.getPointerCount() > 1) {
-                commitTextEditingIfNeeded();
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) { navigationGesture = false; }
+            if (event.getPointerCount() > 1 && !navigationGesture) {
+                cancelInk();
                 clearSelectionInteraction();
-                return dispatchToParentPdfView(event);
+                navigationGesture = true;
+                // The PDF listener did not receive the drawing DOWN. Seed its detectors
+                // with the first pointer at the handoff position, then forward POINTER_DOWN.
+                MotionEvent down = MotionEvent.obtain(event.getEventTime(), event.getEventTime(),
+                    MotionEvent.ACTION_DOWN, event.getX(0), event.getY(0), event.getMetaState());
+                dispatchToParentPdfView(down);
+                down.recycle();
+            }
+            if (navigationGesture) {
+                dispatchToParentPdfView(event);
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) { navigationGesture = false; }
+                return true;
             }
 
             String currentTool = tool == null ? "select" : tool;
@@ -975,7 +984,6 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return handleSelectTouch(event);
             }
 
-            int action = event.getActionMasked();
             if ("ink".equals(currentTool)) {
                 if (action == MotionEvent.ACTION_DOWN) {
                     AnnotationHit hit = hitTest(event.getX(), event.getY());
@@ -988,22 +996,14 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     AnnotationHit hit = hitTest(event.getX(), event.getY());
                     appendInkPoint(hit, event.getX(), event.getY());
                     return true;
-                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                } else if (action == MotionEvent.ACTION_CANCEL) {
+                    cancelInk();
+                    return true;
+                } else if (action == MotionEvent.ACTION_UP) {
                     endInk();
                     return true;
                 }
-            } else if ("text".equals(currentTool)) {
-                if (action == MotionEvent.ACTION_DOWN) {
-                    // Own the gesture so the overlay receives ACTION_UP.
-                    return hitTest(event.getX(), event.getY()) != null;
-                }
-                if (action == MotionEvent.ACTION_UP) {
-                    AnnotationHit hit = hitTest(event.getX(), event.getY());
-                    if (hit != null) {
-                        createTextAnnotation(hit, event.getX(), event.getY());
-                    }
-                }
-                return true;
+
             }
 
             return false;
@@ -1018,16 +1018,16 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
 
             Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-            for (JSONObject annotation : draftAnnotations) {
+            java.util.ArrayList<JSONObject> visible = new java.util.ArrayList<>(draftAnnotations);
+            if (activeInkAnnotation != null) { visible.add(activeInkAnnotation); }
+            for (JSONObject annotation : visible) {
                 int pageIndex = annotation.optInt("page", 1) - 1;
                 if (pageIndex < 0 || pageIndex >= PdfView.this.getPageCount()) {
                     continue;
                 }
 
-                String type = normalizeAnnotationType(annotation.optString("type", ""));
+                String type = annotation.optString("type", "");
                 RectF rect = viewRectForAnnotation(annotation, pageIndex);
                 if (rect == null && !"ink".equals(type)) {
                     continue;
@@ -1079,28 +1079,11 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                     strokePaint.setStrokeWidth(Math.max(1f, (float) styleFor(annotation).optDouble("thickness", 2.0)));
                     strokePaint.setColor(annotationColor(annotation, Color.BLACK));
                     canvas.drawPath(path, strokePaint);
-                } else if ("text".equals(type)) {
-                    fillPaint.setColor(Color.argb(200, 255, 255, 255));
-                    canvas.drawRoundRect(rect, 4f, 4f, fillPaint);
 
-                    strokePaint.setStyle(Paint.Style.STROKE);
-                    strokePaint.setStrokeWidth(1f);
-                    strokePaint.setColor(annotationColor(annotation, Color.rgb(34, 68, 170)));
-                    canvas.drawRoundRect(rect, 4f, 4f, strokePaint);
-
-                    textPaint.setColor(strokePaint.getColor());
-                    textPaint.setTextSize((float) styleFor(annotation).optDouble("fontSize", 15.0));
-                    textPaint.setTextAlign(Paint.Align.LEFT);
-                    String text = annotation.optString("text", "");
-                    canvas.drawText(text, rect.left + 8f, rect.top + Math.max(20f, textPaint.getTextSize() + 6f), textPaint);
-                } else if ("highlight".equals(type)) {
-                    fillPaint.setColor(annotationColor(annotation, annotationFillColor(type)));
-                    canvas.drawRect(rect, fillPaint);
                 }
             }
 
             drawSelectionDecorations(canvas);
-            updateEditTextFrame();
         }
 
         private boolean handleSelectTouch(MotionEvent event) {
@@ -1246,6 +1229,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 JSONObject candidate = draftAnnotations.get(i);
                 if (annotationId != null && annotationId.equals(candidate.optString("id", null))) {
                     draftAnnotations.remove(i);
+                    inkHistory.remove(annotationId);
+                    clearSelectionInteraction();
+                    notifyUndoState();
                     break;
                 }
             }
@@ -1294,16 +1280,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return new RectF(minX, minY, maxX, maxY);
             }
 
-            JSONObject bounds = annotation.optJSONObject("bounds");
-            if (bounds == null) {
-                return null;
-            }
-
-            float x = (float) bounds.optDouble("x", 0f);
-            float y = (float) bounds.optDouble("y", 0f);
-            float width = (float) bounds.optDouble("width", 0f);
-            float height = (float) bounds.optDouble("height", 0f);
-            return new RectF(x, y, x + width, y + height);
+            return null;
         }
 
         private JSONArray copyPointsForAnnotation(JSONObject annotation) {
@@ -1417,14 +1394,6 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return;
             }
 
-            try {
-                annotation.put("bounds", new JSONObject()
-                    .put("x", Math.min(1f, Math.max(0f, newBounds.left)))
-                    .put("y", Math.min(1f, Math.max(0f, newBounds.top)))
-                    .put("width", Math.min(1f, Math.max(0.01f, newBounds.width())))
-                    .put("height", Math.min(1f, Math.max(0.01f, newBounds.height()))));
-            } catch (JSONException ignored) {
-            }
         }
 
         private RectF resizeHandleRect(RectF rect) {
@@ -1491,7 +1460,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 style.put("color", inkColor);
                 style.put("thickness", inkThickness);
                 annotation.put("style", style);
-                draftAnnotations.add(annotation);
+                cancelInk();
                 activeInkAnnotation = annotation;
                 appendInkPoint(hit, x, y);
             } catch (JSONException ignored) {
@@ -1499,14 +1468,14 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         private void appendInkPoint(AnnotationHit hit, float x, float y) {
-            if (activeInkAnnotation == null) {
+            if (activeInkAnnotation == null || inkReachedPageBoundary) {
                 return;
             }
 
-            // A stroke belongs to its starting page. Never mix coordinate spaces
-            // when the finger crosses a page edge or the gap between pages.
+            // Freeze at the page edge; defer confirmation until ACTION_UP so
+            // a later second pointer can still cancel the whole stroke.
             if (hit == null || hit.pageIndex + 1 != activeInkAnnotation.optInt("page", 1)) {
-                endInk();
+                inkReachedPageBoundary = true;
                 return;
             }
 
@@ -1527,162 +1496,46 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             }
         }
 
+        private void cancelInk() {
+            activeInkAnnotation = null;
+            inkReachedPageBoundary = false;
+            invalidate();
+        }
+
+        private void notifyUndoState() {
+            PdfView.this.notifyOnChangeWithMessage("annotationUndoStateChanged|" + !inkHistory.isEmpty());
+        }
+
+        void resetInkHistory() {
+            cancelInk();
+            inkHistory.clear();
+            notifyUndoState();
+        }
+
+        void undoLastInkStroke() {
+            if (!annotationModeEnabled || !editable || !supported || activeInkAnnotation != null) { return; }
+            while (!inkHistory.isEmpty()) {
+                String id = inkHistory.remove(inkHistory.size() - 1);
+                for (JSONObject annotation : new java.util.ArrayList<>(draftAnnotations)) {
+                    if (id.equals(annotation.optString("id"))) {
+                        deleteAnnotation(annotation);
+                        return;
+                    }
+                }
+            }
+            notifyUndoState();
+        }
+
         private void endInk() {
             if (activeInkAnnotation == null) {
                 return;
             }
+            draftAnnotations.add(activeInkAnnotation);
+            inkHistory.add(activeInkAnnotation.optString("id"));
             activeInkAnnotation = null;
             invalidate();
+            notifyUndoState();
             PdfView.this.notifyOnChangeWithMessage("strokeEnd");
-        }
-
-        private void beginMarkup(AnnotationHit hit, float x, float y, String type) {
-            try {
-                markupStartNormalized = normalizedPointFor(hit, x, y);
-                JSONObject annotation = new JSONObject();
-                annotation.put("id", nextLocalAnnotationId());
-                annotation.put("page", hit.pageIndex + 1);
-                annotation.put("type", normalizeAnnotationType(type));
-                annotation.put("bounds", new JSONObject().put("x", markupStartNormalized.x).put("y", markupStartNormalized.y).put("width", 0).put("height", 0));
-                annotation.put("style", new JSONObject());
-                draftAnnotations.add(annotation);
-                activeMarkupAnnotation = annotation;
-                invalidate();
-            } catch (JSONException ignored) {
-            }
-        }
-
-        private void updateMarkup(AnnotationHit hit, float x, float y) {
-            if (activeMarkupAnnotation == null || markupStartNormalized == null) {
-                return;
-            }
-
-            try {
-                PointF normalized = normalizedPointFor(hit, x, y);
-                float minX = Math.min(markupStartNormalized.x, normalized.x);
-                float minY = Math.min(markupStartNormalized.y, normalized.y);
-                float maxX = Math.max(markupStartNormalized.x, normalized.x);
-                float maxY = Math.max(markupStartNormalized.y, normalized.y);
-                activeMarkupAnnotation.put("bounds", new JSONObject()
-                    .put("x", minX)
-                    .put("y", minY)
-                    .put("width", Math.max(0f, maxX - minX))
-                    .put("height", Math.max(0f, maxY - minY)));
-                invalidate();
-            } catch (JSONException ignored) {
-            }
-        }
-
-        private void endMarkup() {
-            activeMarkupAnnotation = null;
-            markupStartNormalized = null;
-            invalidate();
-        }
-
-        private void createTextAnnotation(AnnotationHit hit, float x, float y) {
-            if (!editable || !supported) {
-                return;
-            }
-
-            commitTextEditingIfNeeded();
-
-            try {
-                PointF normalized = normalizedPointFor(hit, x, y);
-                float width = 0.25f;
-                float height = 0.12f;
-                float clampedX = Math.min(Math.max(normalized.x, 0f), Math.max(0f, 1f - width));
-                float clampedY = Math.min(Math.max(normalized.y, 0f), Math.max(0f, 1f - height));
-
-                JSONObject bounds = new JSONObject();
-                bounds.put("x", clampedX);
-                bounds.put("y", clampedY);
-                bounds.put("width", width);
-                bounds.put("height", height);
-
-                JSONObject annotation = new JSONObject();
-                annotation.put("id", nextLocalAnnotationId());
-                annotation.put("page", hit.pageIndex + 1);
-                annotation.put("type", "text");
-                annotation.put("bounds", bounds);
-                annotation.put("text", "");
-                JSONObject style = new JSONObject();
-                style.put("color", "#2244aa");
-                style.put("fontSize", 15.0f);
-                style.put("textAlign", "left");
-                annotation.put("style", style);
-                draftAnnotations.add(annotation);
-                activeTextAnnotation = annotation;
-
-                activeEditText = new EditText(getContext());
-                activeEditText.setBackgroundColor(Color.argb(220, 255, 255, 255));
-                activeEditText.setTextColor(Color.rgb(34, 68, 170));
-                activeEditText.setPadding(12, 8, 12, 8);
-                activeEditText.setSingleLine(false);
-                activeEditText.setGravity(Gravity.TOP | Gravity.START);
-                activeEditText.setTextSize(15f);
-                activeEditText.addTextChangedListener(new TextWatcher() {
-                    @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-                    @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-                    @Override public void afterTextChanged(Editable s) {
-                        if (activeTextAnnotation != null) {
-                            try {
-                                activeTextAnnotation.put("text", s.toString());
-                            } catch (JSONException ignored) {
-                            }
-                            invalidate();
-                        }
-                    }
-                });
-
-                addView(activeEditText, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                activeEditText.requestFocus();
-                updateEditTextFrame();
-                invalidate();
-            } catch (JSONException ignored) {
-            }
-        }
-
-        void commitTextEditingIfNeeded() {
-            if (activeEditText == null || activeTextAnnotation == null) {
-                return;
-            }
-
-            try {
-                activeTextAnnotation.put("text", activeEditText.getText() == null ? "" : activeEditText.getText().toString());
-            } catch (JSONException ignored) {
-            }
-
-            activeEditText.clearFocus();
-            removeView(activeEditText);
-            activeEditText = null;
-            activeTextAnnotation = null;
-            invalidate();
-        }
-
-        private void updateEditTextFrame() {
-            if (activeEditText == null || activeTextAnnotation == null) {
-                return;
-            }
-
-            RectF rect = viewRectForAnnotation(activeTextAnnotation, activeTextAnnotation.optInt("page", 1) - 1);
-            if (rect == null) {
-                return;
-            }
-
-            ViewGroup.LayoutParams params = activeEditText.getLayoutParams();
-            params.width = Math.max(1, Math.round(rect.width()));
-            params.height = Math.max(1, Math.round(rect.height()));
-            activeEditText.setLayoutParams(params);
-            activeEditText.setX(rect.left);
-            activeEditText.setY(rect.top);
-        }
-
-        private boolean isPointInsideView(float x, float y, View view) {
-            if (view == null) {
-                return false;
-            }
-
-            return x >= view.getX() && x <= view.getX() + view.getWidth() && y >= view.getY() && y <= view.getY() + view.getHeight();
         }
 
         private AnnotationHit hitTest(float x, float y) {
@@ -1730,9 +1583,8 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         }
 
         private RectF viewRectForAnnotation(JSONObject annotation, int pageIndex) {
-            JSONObject bounds = annotation.optJSONObject("bounds");
             String type = annotation.optString("type", "");
-            if (bounds == null && !"ink".equals(type)) {
+            if (!"ink".equals(type)) {
                 return null;
             }
 
@@ -1776,17 +1628,7 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
                 return new RectF(Math.min(left, right), Math.min(top, bottom), Math.max(left, right), Math.max(top, bottom));
             }
 
-            float x = (float) bounds.optDouble("x", 0f);
-            float y = (float) bounds.optDouble("y", 0f);
-            float width = (float) bounds.optDouble("width", 0f);
-            float height = (float) bounds.optDouble("height", 0f);
-
-            float left = pageRenderInfo.left + (x * pageRenderInfo.width);
-            float top = pageRenderInfo.top + (y * pageRenderInfo.height);
-            float right = pageRenderInfo.left + ((x + width) * pageRenderInfo.width);
-            float bottom = pageRenderInfo.top + ((y + height) * pageRenderInfo.height);
-
-            return new RectF(Math.min(left, right), Math.min(top, bottom), Math.max(left, right), Math.max(top, bottom));
+            return null;
         }
 
         private JSONObject styleFor(JSONObject annotation) {
@@ -1794,17 +1636,9 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             return style == null ? new JSONObject() : style;
         }
 
-        private String normalizeAnnotationType(String type) {
-            if ("underline".equals(type) || "strikeout".equals(type)) {
-                return "highlight";
-            }
-
-            return type;
-        }
-
         private boolean annotationSupportsResize(JSONObject annotation) {
-            String type = normalizeAnnotationType(annotation.optString("type", ""));
-            return "text".equals(type) || "highlight".equals(type);
+            String type = annotation.optString("type", "");
+            return "ink".equals(type);
         }
 
         private int annotationColor(JSONObject annotation, int fallback) {
@@ -1826,14 +1660,6 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
             } catch (IllegalArgumentException ex) {
                 return fallback;
             }
-        }
-
-        private int annotationFillColor(String type) {
-            if ("highlight".equals(type) || "underline".equals(type) || "strikeout".equals(type)) {
-                return Color.argb(90, 255, 230, 60);
-            }
-
-            return Color.BLACK;
         }
 
         private String nextLocalAnnotationId() {
@@ -1896,9 +1722,13 @@ public class PdfView extends PDFView implements OnPageChangeListener,OnLoadCompl
         this.jumpTo(page);
     }
 
+    public void undoLastInkStroke() {
+        if (annotationOverlayView != null) { annotationOverlayView.undoLastInkStroke(); }
+    }
+
     public void saveAnnotations() {
         if (annotationOverlayView != null) {
-            annotationOverlayView.commitTextEditingIfNeeded();
+
             notifyOnChangeWithMessage("annotationSaveComplete|" + annotationOverlayView.serializeDocument());
             return;
         }

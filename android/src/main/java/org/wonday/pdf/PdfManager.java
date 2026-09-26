@@ -232,6 +232,8 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
             saveAnnotations(root);
         } else if ("deleteSelectedAnnotation".equals(commandId)) {
             deleteSelectedAnnotation(root);
+        } else if ("undoLastInkStroke".equals(commandId)) {
+            undoLastInkStroke(root);
         } else if ("deleteAllAnnotations".equals(commandId)) {
             deleteAllAnnotations(root);
         }
@@ -245,6 +247,11 @@ public class PdfManager extends SimpleViewManager<PdfView> implements RNPDFPdfVi
     @Override
     public void deleteSelectedAnnotation(PdfView view) {
         view.deleteSelectedAnnotation();
+    }
+
+    @Override
+    public void undoLastInkStroke(PdfView view) {
+        view.undoLastInkStroke();
     }
 
     @Override

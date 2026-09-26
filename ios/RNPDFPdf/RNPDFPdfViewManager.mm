@@ -104,6 +104,14 @@ RCT_EXPORT_METHOD(deleteSelectedAnnotation:(nonnull NSNumber *)reactTag)
     }];
 }
 
+RCT_EXPORT_METHOD(undoLastInkStroke:(nonnull NSNumber *)reactTag)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        RNPDFPdfView *view = (RNPDFPdfView *)viewRegistry[reactTag];
+        if ([view isKindOfClass:[RNPDFPdfView class]]) { [view undoLastInkStroke]; }
+    }];
+}
+
 RCT_EXPORT_METHOD(deleteAllAnnotations:(nonnull NSNumber *)reactTag)
 {
     [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {

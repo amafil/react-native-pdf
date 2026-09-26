@@ -1,21 +1,8 @@
 'use strict';
 
-const LEGACY_MARKUP_TYPES = new Set(['underline', 'strikeout']);
-
-export function normalizeAnnotation(annotation) {
-    if (!annotation || typeof annotation !== 'object' || Array.isArray(annotation)) {
-        return annotation;
-    }
-
-    if (!LEGACY_MARKUP_TYPES.has(annotation.type)) {
-        return annotation;
-    }
-
-    return {
-        ...annotation,
-        type: 'highlight',
-    };
-}
+const isInkAnnotation = annotation => (
+    annotation != null && typeof annotation === 'object' && !Array.isArray(annotation) && annotation.type === 'ink'
+);
 
 export function normalizeAnnotationPayload(payload) {
     if (!payload || typeof payload !== 'object') {
@@ -23,7 +10,7 @@ export function normalizeAnnotationPayload(payload) {
     }
 
     if (Array.isArray(payload)) {
-        return payload.map(normalizeAnnotation);
+        return payload.filter(isInkAnnotation);
     }
 
     if (!Array.isArray(payload.annotations)) {
@@ -32,7 +19,7 @@ export function normalizeAnnotationPayload(payload) {
 
     return {
         ...payload,
-        annotations: payload.annotations.map(normalizeAnnotation),
+        annotations: payload.annotations.filter(isInkAnnotation),
     };
 }
 

@@ -68,6 +68,7 @@ UIView
 - (void)saveAnnotations;
 - (void)deleteSelectedAnnotation;
 - (void)deleteAllAnnotations;
+- (void)undoLastInkStroke;
 
 @property(nonatomic, strong) NSString *selectedText;
 @property(nonatomic) BOOL enableTextSelection;
