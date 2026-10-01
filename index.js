@@ -168,6 +168,7 @@ export default class Pdf extends Component {
         this._lastKnownPage = Number.isFinite(props.page) ? props.page : 1;
         this._numberOfPages = 0;
         this.lastViewFile = null;
+        this._temporaryFiles = new Set();
     }
 
     componentDidUpdate(prevProps) {
@@ -208,17 +209,12 @@ export default class Pdf extends Component {
             this.lastRNBFTask = null;
         }
 
-        if (!this.props.cache) {
-            if (this.props.transformFile) {
-                // this.state.path is the .view file; unlink the original pre-transformed file.
-                // The .view file is cleaned up by _cleanupViewFile below.
-                if (this.lastPreTransformedPath) {
-                    this._unlinkFile(this.lastPreTransformedPath);
-                }
-            } else {
-                this._unlinkFile(this.state.path);
-            }
+        // Only generated, non-cached files belong to this component. In particular,
+        // state.path may point directly at an application-owned local PDF.
+        for (const path of this._temporaryFiles) {
+            this._unlinkFile(path);
         }
+        this._temporaryFiles.clear();
 
         this._cleanupViewFile();
 
@@ -237,7 +233,6 @@ export default class Pdf extends Component {
         const base64 = await ReactNativeBlobUtil.fs.readFileWithTransform(preTransformedPath, 'base64');
         await ReactNativeBlobUtil.fs.writeFile(viewFile, base64, 'base64');
         this.lastViewFile = viewFile;
-        this.lastPreTransformedPath = preTransformedPath;
         return viewFile;
     };
 
@@ -295,8 +290,13 @@ export default class Pdf extends Component {
                 const filename = source.cacheFileName || SHA1(uri) + '.pdf';
                 const cacheFile = ReactNativeBlobUtil.fs.dirs.CacheDir + '/' + filename;
 
-                // delete old cache file
-                this._unlinkFile(cacheFile);
+                if (isNetwork || isAsset || isBase64) {
+                    if (!source.cache) {
+                        this._temporaryFiles.add(cacheFile);
+                    }
+                    // Local sources are borrowed, even when they live in CacheDir.
+                    await this._unlinkFile(cacheFile);
+                }
 
                 if (isNetwork) {
                     this._downloadFile(source, cacheFile);
