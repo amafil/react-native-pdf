@@ -84,6 +84,35 @@ int main() { @autoreleasepool {
     check(saved(overlay).count == 1, @"non-Ink types ignored");
     [overlay undoLastInkStroke];
     check(saved(overlay).count == 1, @"replacement document resets history");
+    // A stale or misrouted gesture must never write outside Ink mode.
+    for (NSNumber *pageCount in @[@1, @2]) {
+        if (pageCount.intValue == 1) { [doc removePageAtIndex:1]; }
+        else { [doc insertPage:page2 atIndex:1]; }
+        [overlay setAnnotationMode:NO tool:@"ink" editable:YES idMode:@"auto"];
+        NSUInteger count = saved(overlay).count;
+        [events removeAllObjects];
+        [overlay beginInkAtViewPoint:CGPointMake(50,50) page:page];
+        [overlay appendInkPointAtViewPoint:CGPointMake(50,100) page:page];
+        [overlay appendInkPointAtViewPoint:CGPointMake(100,100) page:page];
+        [overlay endInk];
+        check(saved(overlay).count == count, @"disabled mode rejects scrolling strokes regardless of page count");
+        check(![events containsObject:@"strokeEnd"], @"disabled mode emits no strokeEnd");
+    }
+    for (NSString *restriction in @[@"mode", @"editable", @"tool"]) {
+        [overlay setAnnotationMode:YES tool:@"ink" editable:YES idMode:@"auto"];
+        NSUInteger count = saved(overlay).count;
+        [overlay beginInkAtViewPoint:CGPointMake(50,50) page:page];
+        [overlay setAnnotationMode:![restriction isEqual:@"mode"]
+                             tool:[restriction isEqual:@"tool"] ? @"select" : @"ink"
+                         editable:![restriction isEqual:@"editable"] idMode:@"auto"];
+        [events removeAllObjects];
+        [overlay appendInkPointAtViewPoint:CGPointMake(100,100) page:page];
+        [overlay endInk];
+        [overlay beginInkAtViewPoint:CGPointMake(50,50) page:page];
+        [overlay endInk];
+        check(saved(overlay).count == count, @"disabling drawing cancels active stroke and rejects late callbacks");
+        check(![events containsObject:@"strokeEnd"], @"late callbacks emit no strokeEnd");
+    }
     RNPDFInkGestureRecognizer *gesture = [InkTestGesture new];
     [view addGestureRecognizer:gesture];
     UIEvent *event = [UIEvent new];

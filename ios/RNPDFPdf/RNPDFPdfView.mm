@@ -604,6 +604,8 @@ using namespace facebook::react;
 
 - (void)didSetProps:(NSArray<NSString *> *)changedProps
 {
+    // Disable the recognizer itself, including any gesture already in flight.
+    _inkRecognizer.enabled = _annotationMode && _annotationEditable && [_annotationTool isEqualToString:@"ink"];
     if (!_initialed) {
 
         _changedProps = changedProps;
@@ -1270,6 +1272,10 @@ using namespace facebook::react;
 
 - (void)handleInkGesture:(RNPDFInkGestureRecognizer *)sender
 {
+    if (!_annotationMode || !_annotationEditable || ![_annotationTool isEqualToString:@"ink"]) {
+        [_annotationOverlay cancelInk];
+        return;
+    }
     CGPoint point = sender.inkPoint;
     PDFPage *page = [_pdfView pageForPoint:point nearest:NO];
     if (sender.state == UIGestureRecognizerStateBegan) {
@@ -1370,6 +1376,7 @@ using namespace facebook::react;
     [self addGestureRecognizer:annotationPanRecognizer];
     _annotationPanRecognizer = annotationPanRecognizer;
     _inkRecognizer = [[RNPDFInkGestureRecognizer alloc] initWithTarget:self action:@selector(handleInkGesture:)];
+    _inkRecognizer.enabled = _annotationMode && _annotationEditable && [_annotationTool isEqualToString:@"ink"];
     _inkRecognizer.delegate = self;
     _inkRecognizer.cancelsTouchesInView = NO;
     _inkRecognizer.delaysTouchesBegan = NO;
@@ -1408,7 +1415,7 @@ using namespace facebook::react;
         return NO;
     }
 
-    if (gestureRecognizer == _inkRecognizer) { return YES; }
+    if (gestureRecognizer == _inkRecognizer) { return _annotationMode && _annotationEditable && [_annotationTool isEqualToString:@"ink"]; }
     return !_singlePage;
 }
 
@@ -2374,7 +2381,7 @@ static NSString *RNPDFGenerateAnnotationId(void)
 
 - (void)beginInkAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
 {
-    if (!self.annotationEditable || !page) {
+    if (!self.annotationMode || !self.annotationEditable || ![self.annotationTool isEqualToString:@"ink"] || !page) {
         return;
     }
 
@@ -2394,6 +2401,10 @@ static NSString *RNPDFGenerateAnnotationId(void)
 
 - (void)appendInkPointAtViewPoint:(CGPoint)viewPoint page:(PDFPage *)page
 {
+    if (!_annotationMode || !_annotationEditable || ![_annotationTool isEqualToString:@"ink"]) {
+        [self cancelInk];
+        return;
+    }
     if (!_activeInkAnnotation || _inkReachedPageBoundary) {
         return;
     }
@@ -2418,6 +2429,10 @@ static NSString *RNPDFGenerateAnnotationId(void)
 
 - (void)endInk
 {
+    if (!_annotationMode || !_annotationEditable || ![_annotationTool isEqualToString:@"ink"]) {
+        [self cancelInk];
+        return;
+    }
     if (!_activeInkAnnotation) { return; }
     [_draftAnnotations addObject:_activeInkAnnotation];
     [_inkHistory addObject:_activeInkAnnotation[@"id"]];
