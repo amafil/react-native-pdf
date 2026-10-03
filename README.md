@@ -13,7 +13,7 @@ A react native PDF view component (cross-platform support)
 * support password protected pdf
 * jump to a specific page in the pdf
 * auto scroll with configurable speed (ideal for music sheets)
-* annotate pages with ink, text, and highlight tools
+* draw, select, move, resize and undo Ink annotations
 
 ### Annotation editing
 
@@ -24,14 +24,6 @@ const annotations = {
   editable: true,
   idMode: 'auto',
   annotations: [
-    {
-      id: 'note-1',
-      page: 1,
-      type: 'text',
-      bounds: {x: 0.15, y: 0.24, width: 0.28, height: 0.12},
-      text: 'Reminder for page one',
-      style: {color: '#2244aa', fontSize: 15, textAlign: 'left'},
-    },
     {
       id: 'stroke-1',
       page: 2,
@@ -57,13 +49,24 @@ const annotations = {
 />
 ```
 
-Supported tools are `select`, `ink`, `text`, and `highlight`.
+Supported tools are `select` and `ink`. Custom annotation documents contain only `type: "ink"`; other types are ignored on load and omitted on save.
 
-In `select` mode, tap an annotation to select it, drag to move it, and use the resize handle to resize text and highlight annotations. Deletion is host-controlled: call `pdfRef.current.deleteSelectedAnnotation()` or `pdfRef.current.deleteAllAnnotations()` from your own UI.
+In `select` mode, tap an annotation to select it, drag to move it, and use the resize handle to resize Ink strokes. Deletion is host-controlled: call `pdfRef.current.deleteSelectedAnnotation()` or `pdfRef.current.deleteAllAnnotations()` from your own UI.
 
 Call `await pdfRef.current.saveAnnotations()` to receive the current document back from native as `{ editable, idMode, annotations }`.
 
-Legacy `underline` and `strikeout` annotations are normalized to `highlight` when loading and saving.
+Draw with one finger; scroll or pinch with two. Adding a second finger discards the current provisional stroke and switches to navigation until every finger lifts. Cancelled and provisional strokes are never saved or reported through `onAnnotationStrokeEnd`.
+
+Call `pdfRef.current.undoLastInkStroke()` to remove the latest surviving stroke drawn in the current annotation session. Subscribe to `onAnnotationUndoStateChanged={({canUndo}) => setCanUndo(canUndo)}` to enable your Undo button. Undo works across pages and does not undo moves, resizing or deletions. There is no redo. It is a no-op while a stroke is in progress or editing is disabled.
+
+History resets when annotation mode closes, the PDF changes, all strokes are deleted, or a different annotation document replaces the draft. Saving and supplying the same content back through `annotations` preserves history, regardless of JSON object key order. Existing strokes loaded before editing cannot be undone; select and delete them instead.
+
+```tsx
+<Button title="Undo last stroke" disabled={!canUndo}
+  onPress={() => pdfRef.current?.undoLastInkStroke()} />
+```
+
+This removes the former custom text/highlight API. PDF text selection and rendering of annotations embedded in the original PDF are unaffected.
 
 Notes:
 
@@ -544,3 +547,10 @@ Example:
 ```
 this.pdf.stopAutoScroll();
 ```
+
+### Ink regression checks
+
+From `FabricExample`, run `npm test -- --runInBand --watchman=false annotationDocumentUtils annotationUndoBridge`.
+On macOS with Xcode and a booted iOS simulator, run `python3 tests/native/run-ink-ios.py` from the library root. This compiles the production overlay against UIKit/PDFKit and checks provisional strokes, cancellation, page boundaries, session undo, save echoes, deletion and replacement documents. It does not simulate physical touches.
+
+On both iOS and Android, also verify on device: start drawing, add a second finger immediately or after moving, scroll/pinch, then lift either finger first. No provisional stroke should remain or restart until all fingers lift. Repeat at a page gap; check normal taps/drawing, selection/resize, repeated undo across pages, save/background, and reopening annotation mode.

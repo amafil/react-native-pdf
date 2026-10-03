@@ -26,10 +26,8 @@ export type Source = {
   uri: string
 };
 
-export type AnnotationRotation = 0 | 90 | 180 | 270;
 export type AnnotationIdMode = 'auto' | 'manual';
-export type AnnotationTool = 'select' | 'ink' | 'text';
-export type AnnotationTextAlign = 'left' | 'center' | 'right';
+export type AnnotationTool = 'select' | 'ink';
 
 export type AnnotationPoint = {
   x: number,
@@ -37,20 +35,9 @@ export type AnnotationPoint = {
   pressure?: number,
 };
 
-export type AnnotationBounds = {
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-};
-
 export type AnnotationStyle = {
   color?: string,
   thickness?: number,
-  fontFamily?: string,
-  fontSize?: number,
-  textAlign?: AnnotationTextAlign,
-  rotation?: AnnotationRotation,
 };
 
 export type AnnotationBase = {
@@ -67,20 +54,7 @@ export type InkAnnotation = AnnotationBase & {
   style?: AnnotationStyle,
 };
 
-export type TextAnnotation = AnnotationBase & {
-  type: 'text',
-  bounds: AnnotationBounds,
-  text: string,
-  style?: AnnotationStyle,
-};
-
-export type MarkupAnnotation = AnnotationBase & {
-  type: 'highlight',
-  bounds: AnnotationBounds,
-  style?: AnnotationStyle,
-};
-
-export type Annotation = InkAnnotation | TextAnnotation | MarkupAnnotation;
+export type Annotation = InkAnnotation;
 
 export type AnnotationDocument = {
   editable?: boolean,
@@ -129,6 +103,7 @@ export type Props = {
   onPressLink?: (url: string) => void,
   onHardwarePageTurn?: (direction: PageTurnDirection, page: number, numberOfPages: number, source: HardwarePageTurnSource) => void,
   onAnnotationStrokeEnd?: () => void,
+    onAnnotationUndoStateChanged?: (state: { canUndo: boolean }) => void,
   page?: number,
   password?: string,
   progressContainerStyle?: ViewStyleProp,
@@ -144,5 +119,6 @@ declare export default class Pdf extends Component<Props> {
   saveAnnotations: () => Promise<AnnotationDocument>;
   deleteSelectedAnnotation: () => void;
   deleteAllAnnotations: () => void;
+  undoLastInkStroke: () => void;
   handlePageTurn: (direction: PageTurnDirection) => boolean;
 }
