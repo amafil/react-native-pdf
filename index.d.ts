@@ -27,10 +27,8 @@ export type Source = {
     method?: string;
 };
 
-export type AnnotationRotation = 0 | 90 | 180 | 270;
 export type AnnotationIdMode = 'auto' | 'manual';
-export type AnnotationTool = 'select' | 'ink' | 'text';
-export type AnnotationTextAlign = 'left' | 'center' | 'right';
+export type AnnotationTool = 'select' | 'ink';
 
 export type AnnotationPoint = {
     x: number,
@@ -38,20 +36,9 @@ export type AnnotationPoint = {
     pressure?: number,
 };
 
-export type AnnotationBounds = {
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-};
-
 export type AnnotationStyle = {
     color?: string,
     thickness?: number,
-    fontFamily?: string,
-    fontSize?: number,
-    textAlign?: AnnotationTextAlign,
-    rotation?: AnnotationRotation,
 };
 
 export type AnnotationBase = {
@@ -68,20 +55,7 @@ export type InkAnnotation = AnnotationBase & {
     style?: AnnotationStyle,
 };
 
-export type TextAnnotation = AnnotationBase & {
-    type: 'text',
-    bounds: AnnotationBounds,
-    text: string,
-    style?: AnnotationStyle,
-};
-
-export type MarkupAnnotation = AnnotationBase & {
-    type: 'highlight',
-    bounds: AnnotationBounds,
-    style?: AnnotationStyle,
-};
-
-export type Annotation = InkAnnotation | TextAnnotation | MarkupAnnotation;
+export type Annotation = InkAnnotation;
 
 export type AnnotationDocument = {
     editable?: boolean,
@@ -180,6 +154,7 @@ export interface PdfProps {
     onHardwarePageTurn?: (direction: PageTurnDirection, page: number, numberOfPages: number, source: HardwarePageTurnSource) => void,
     onAutoScrollEnd?: () => void,
     onAnnotationStrokeEnd?: () => void,
+    onAnnotationUndoStateChanged?: (state: { canUndo: boolean }) => void,
     onTextSelectionChange?: (event: TextSelectionChangeEvent) => void,
 }
 
@@ -197,6 +172,8 @@ export interface PdfRef {
      * Deletes all custom annotations in the current overlay draft.
      */
     deleteAllAnnotations(): void
+    /** Removes the most recent surviving Ink stroke created in this editing session. */
+    undoLastInkStroke(): void
     /**
      * Moves one page backward or forward using the same navigation rules as native hardware page-turn input.
      */

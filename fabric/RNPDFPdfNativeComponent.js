@@ -60,13 +60,14 @@
   +deleteSelectedAnnotation: (
     viewRef: React.ElementRef<ComponentType>,
   ) => void;
+  +undoLastInkStroke: (viewRef: React.ElementRef<ComponentType>) => void;
   +deleteAllAnnotations: (
     viewRef: React.ElementRef<ComponentType>,
   ) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
-  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll', 'saveAnnotations', 'deleteSelectedAnnotation', 'deleteAllAnnotations'],
+  supportedCommands: ['setNativePage', 'startNativeAutoScroll', 'stopNativeAutoScroll', 'saveAnnotations', 'deleteSelectedAnnotation', 'deleteAllAnnotations', 'undoLastInkStroke'],
 });
 
  export default codegenNativeComponent<NativeProps>('RNPDFPdfView');
